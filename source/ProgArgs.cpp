@@ -529,6 +529,8 @@ void ProgArgs::defineAllowedArgs()
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
+/*s3m*/ (ARG_METADATA_LONG, bpo::bool_switch(&this->useS3Metadata),
+                "Write and validate object metadata like tags")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),

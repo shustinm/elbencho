@@ -149,6 +149,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
+#define ARG_METADATA_LONG           "s3metadata"
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
@@ -469,6 +470,7 @@ class ProgArgs
 		bool useCustomTreeRandomize; // randomize order of custom tree files
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
+        bool useS3Metadata; // object and bucket metadata like tags
 		std::string s3Region; // s3 region
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
@@ -667,6 +669,7 @@ class ProgArgs
         bool getUseRandomOffsets() const { return useRandomOffsets; }
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
+        bool getUseS3Metadata() const { return useS3Metadata; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
         bool getUseS3TransferManager() const { return useS3TransferManager; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }

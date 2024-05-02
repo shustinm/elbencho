@@ -220,7 +220,8 @@ class LocalWorker : public Worker
 			const bool isRWMixedReader);
 		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
-		void s3ModeStatObject(std::string bucketName, std::string objectName, unsigned int workerRank);
+		void s3ModeStatObject(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectTags(std::string bucketName, std::string objectName, unsigned int workerRank);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 		void s3ModeListObjects();
 		void s3ModeListObjParallel();
