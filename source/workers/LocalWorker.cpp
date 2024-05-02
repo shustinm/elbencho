@@ -40,6 +40,7 @@
 	#include <aws/s3/model/GetBucketTaggingRequest.h>
 	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+    #include <aws/s3/model/GetObjectTaggingRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/HeadBucketRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
@@ -3464,7 +3465,7 @@ void LocalWorker::s3ModeIterateObjects()
 			if( (benchPhase == BenchPhase_CREATEFILES) && !isRWMixedReader)
 			{
 				if(blockSize < fileSize)
-					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath);
+					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath, workerRank);
 				else
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
@@ -3480,7 +3481,7 @@ void LocalWorker::s3ModeIterateObjects()
 			}
 
 			if(benchPhase == BenchPhase_STATFILES)
-				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath, workerRank);
 
 			if(benchPhase == BenchPhase_PUTOBJACL)
 				s3ModePutObjectAcl(bucketVec[bucketIndex], currentObjectPath);
@@ -3660,7 +3661,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 				else
 				{ // this worker uploads the whole object
 					if(blockSize < fileSize)
-						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path);
+						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path, workerRank);
 					else
 						s3ModeUploadObjectSinglePart(bucketName, currentPathElem.path);
 				}
@@ -3676,7 +3677,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 		}
 
 		if(benchPhase == BenchPhase_STATFILES)
-			s3ModeStatObject(bucketName, currentPathElem.path);
+			s3ModeStatObject(bucketName, currentPathElem.path, workerRank);
 
 		if(benchPhase == BenchPhase_PUTOBJACL)
 			s3ModePutObjectAcl(bucketName, currentPathElem.path);
@@ -4164,7 +4165,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName)
+void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName, unsigned int workerRank)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -4175,6 +4176,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
+    createMultipartUploadRequest.SetTagging("worker=" + std::to_string(workerRank));
 
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
@@ -4790,7 +4792,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectName)
+void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectName, unsigned int workerRank)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -4814,6 +4816,35 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 			"Message: " + s3Error.GetMessage() + "; " +
 			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
+
+    const auto& tag_outcome = s3Client->GetObjectTagging(
+            S3::GetObjectTaggingRequest()
+                    .WithBucket(bucketName)
+                    .WithKey(objectName)
+    );
+
+    IF_UNLIKELY(!tag_outcome.IsSuccess())
+    {
+        const auto err = tag_outcome.GetError();
+
+        std::stringstream errStr;
+        errStr << "Unable to get tagging: " << err.GetMessage() << std::endl
+               << "workerRank: " << workerRank << "; "
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl;
+        throw WorkerException(errStr.str());
+    }
+
+    auto const& firstTag = tag_outcome.GetResult().GetTagSet().front();
+
+    IF_UNLIKELY(std::to_string(workerRank) != firstTag.GetValue())
+    {
+        std::stringstream errStr;
+        errStr << "Got tag with unexpected value. "
+               << "Expected: " << firstTag.GetKey() << "=" << workerRank << ", "
+               << "but got: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        throw WorkerException(errStr.str());
+    }
 
 #endif // S3_SUPPORT
 }
