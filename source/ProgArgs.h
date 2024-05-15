@@ -149,13 +149,16 @@ namespace bpt = boost::property_tree;
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
-#define ARG_METADATA_LONG           "s3metadata"
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
-#define ARG_S3STATDIRS_LONG          "s3statdirs"
-#define ARG_S3TAGINLINE_LONG        "s3taginline"
-#define ARG_S3TAGINLINEVERIFY_LONG      "s3taginlineverify"
+#define ARG_S3STATDIRS_LONG         "s3statdirs"
+
+#define ARG_S3_BUCKET_TAG_INLINE                "s3btaginline"
+#define ARG_S3_BUCKET_TAG_INLINE_VERIFY         "s3btaginlineverify"
+#define ARG_S3_OBJECT_TAG_INLINE                "s3otaginline"
+#define ARG_S3_OBJECT_TAG_INLINE_VERIFY         "s3otaginlineverify"
+
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -329,8 +332,10 @@ class ProgArgs
 		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
-		bool doS3TagInline; // add bucket tagging ops during bucket different operations
-		bool doS3TagInlineVerify; // do bucket tagging verification.
+		bool doS3BucketTagInline; // add bucket tagging ops during different bucket operations
+		bool doS3BucketTagInlineVerify; // do bucket tagging verification.
+        bool doS3ObjectTagInline; // add object tagging ops during different object operations
+        bool doS3ObjectTagInlineVerify; // do bucket tagging verification.
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -405,7 +410,7 @@ class ProgArgs
 		bool runS3AclPut; // change object acl
 		bool runS3BucketAclGet; // retrieve bucket acl
 		bool runS3BucketAclPut; // change bucket acl
-        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3TagInline)
+        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3BucketTagInline)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
@@ -470,7 +475,6 @@ class ProgArgs
 		bool useCustomTreeRandomize; // randomize order of custom tree files
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
-        bool useS3Metadata; // object and bucket metadata like tags
 		std::string s3Region; // s3 region
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
@@ -550,8 +554,10 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
-        bool getDoS3TagInline() const { return doS3TagInline; }
-        bool getDoS3TagInlineVerify() const { return doS3TagInlineVerify; }
+        bool getDoS3BucketTagInline() const { return doS3BucketTagInline; }
+        bool getDoS3BucketTagInlineVerify() const { return doS3BucketTagInlineVerify; }
+        bool getDoS3ObjectTagInline() const { return doS3ObjectTagInline; }
+        bool getDoS3ObjectTagInlineVerify() const { return doS3ObjectTagInlineVerify; }
         bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }
@@ -669,7 +675,6 @@ class ProgArgs
         bool getUseRandomOffsets() const { return useRandomOffsets; }
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
-        bool getUseS3Metadata() const { return useS3Metadata; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
         bool getUseS3TransferManager() const { return useS3TransferManager; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }

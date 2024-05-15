@@ -3322,7 +3322,7 @@ void LocalWorker::s3ModeIterateBuckets()
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
-    const bool doS3TagInline = progArgs->getDoS3TagInline();
+    const bool doS3TagInline = progArgs->getDoS3BucketTagInline();
 
     workerGotPhaseWork = false; // not all workers might get work
 
@@ -3466,7 +3466,7 @@ void LocalWorker::s3ModeIterateObjects()
 			if( (benchPhase == BenchPhase_CREATEFILES) && !isRWMixedReader)
 			{
 				if(blockSize < fileSize)
-					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath, workerRank);
+					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath);
 				else
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
@@ -3484,9 +3484,9 @@ void LocalWorker::s3ModeIterateObjects()
 			if(benchPhase == BenchPhase_STATFILES)
             {
                 s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
-                if(progArgs->getUseS3Metadata())
+                if(progArgs->getDoS3ObjectTagInline())
                 {
-                    s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath, workerRank);
+                    s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
                 }
             }
 
@@ -3668,7 +3668,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 				else
 				{ // this worker uploads the whole object
 					if(blockSize < fileSize)
-						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path, workerRank);
+						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path);
 					else
 						s3ModeUploadObjectSinglePart(bucketName, currentPathElem.path);
 				}
@@ -3801,7 +3801,7 @@ void LocalWorker::s3ModeCreateBucketTagging(std::string bucketName)
 /*        TODO:
           verify no tags exist after delete tags (how to return tagset from GetBucketTagging)
 */
-        const bool doS3TagInlineVerify = progArgs->getDoS3TagInlineVerify();
+        const bool doS3TagInlineVerify = progArgs->getDoS3BucketTagInlineVerify();
 
         S3::PutBucketTaggingRequest request;
         S3::Tagging tagging;
@@ -3857,7 +3857,7 @@ void LocalWorker::s3ModeGetBucketTagging(std::string bucketName) {
     {
         // Get bucket tagging
         const auto &bucket = bucketName;
-        const bool doS3TagInlineVerify = progArgs->getDoS3TagInlineVerify();
+        const bool doS3TagInlineVerify = progArgs->getDoS3BucketTagInlineVerify();
 
         S3::GetBucketTaggingRequest requestGet;
         requestGet.SetBucket(bucket);
@@ -4119,6 +4119,13 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
 
+    if (progArgs->getDoS3ObjectTagInline())
+    {
+        request.SetTagging(
+                "elbencho_random_tag=" + StringTk::StringTk::generateRandomS3TagValue(objectName, 30)
+        );
+    }
+
 	if(blockSize)
 		request.SetBody(s3MemStream);
 
@@ -4172,7 +4179,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName, unsigned int workerRank)
+void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -4184,9 +4191,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
-    if (progArgs->getUseS3Metadata())
+    if (progArgs->getDoS3ObjectTagInline())
     {
-        createMultipartUploadRequest.SetTagging("worker=" + std::to_string(workerRank));
+        createMultipartUploadRequest.SetTagging(
+                "elbencho_random_tag=" + StringTk::StringTk::generateRandomS3TagValue(objectName, 30)
+        );
     }
 
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
@@ -6218,36 +6227,37 @@ void LocalWorker::anyModeDropCaches()
 			"SysErr: " + strerror(errno) );
 }
 
-void LocalWorker::s3ModeGetObjectTags(std::string bucketName, std::string objectName, unsigned int workerRank) {
+void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
+{
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
-    const auto& tag_outcome = s3Client->GetObjectTagging(
+    const auto& get_tag_outcome = s3Client->GetObjectTagging(
             S3::GetObjectTaggingRequest()
                     .WithBucket(bucketName)
                     .WithKey(objectName)
     );
 
-    IF_UNLIKELY(!tag_outcome.IsSuccess())
+    IF_UNLIKELY(!get_tag_outcome.IsSuccess())
     {
-        const auto err = tag_outcome.GetError();
+        const auto err = get_tag_outcome.GetError();
 
         std::stringstream errStr;
         errStr << "Unable to get tagging: " << err.GetMessage() << std::endl
-               << "workerRank: " << workerRank << "; "
                << "Bucket: " << bucketName << "; "
                << "Key: " << objectName << std::endl;
         throw WorkerException(errStr.str());
     }
 
-    const auto& firstTag = tag_outcome.GetResult().GetTagSet().front();
+    if (!progArgs->getDoS3ObjectTagInlineVerify()) return;
 
-    IF_UNLIKELY(std::to_string(workerRank) != firstTag.GetValue())
+    const auto& firstTag = get_tag_outcome.GetResult().GetTagSet().front();
+
+    IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
     {
         std::stringstream errStr;
-        errStr << "Got tag with unexpected value. "
-               << "Expected: " << firstTag.GetKey() << "=" << workerRank << ", "
-               << "but got: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        errStr << "Random tag value is corrupted (invalid checksum). "
+               << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
         throw WorkerException(errStr.str());
     }
 #endif // S3_SUPPORT

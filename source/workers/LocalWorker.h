@@ -210,7 +210,7 @@ class LocalWorker : public Worker
 		void s3ModePutBucketAcl(std::string bucketName);
 		void s3ModeGetBucketAcl(std::string bucketName);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
-		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName, unsigned int workerRank);
+		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
 			uint64_t objectTotalSize);
 		bool s3AbortMultipartUpload(std::string bucketName, std::string objectName,
@@ -221,7 +221,7 @@ class LocalWorker : public Worker
 		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
 		void s3ModeStatObject(std::string bucketName, std::string objectName);
-        void s3ModeGetObjectTags(std::string bucketName, std::string objectName, unsigned int workerRank);
+        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 		void s3ModeListObjects();
 		void s3ModeListObjParallel();

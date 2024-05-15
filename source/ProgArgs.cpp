@@ -474,12 +474,18 @@ void ProgArgs::defineAllowedArgs()
 			"permissions.")
 /*s3b*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
 			"Do bucket Stats.")
-/*s3b*/	(ARG_S3TAGINLINE_LONG, bpo::bool_switch(&this->doS3TagInline),
-			"Activate inline tagging in other benchmarking phases: "
+/*s3b*/	(ARG_S3_BUCKET_TAG_INLINE, bpo::bool_switch(&this->doS3BucketTagInline),
+			"Activate bucket tagging operations during other benchmarking phases: "
             "Adding of bucket tags in create bucket phase, "
             "reading of tags in stat bucket phase and deletion of tags in delete bucket phase.")
-/*s3b*/	(ARG_S3TAGINLINEVERIFY_LONG, bpo::bool_switch(&this->doS3TagInlineVerify),
-            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3TAGINLINE_LONG "\")")
+/*s3b*/	(ARG_S3_BUCKET_TAG_INLINE_VERIFY, bpo::bool_switch(&this->doS3BucketTagInlineVerify),
+            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3_BUCKET_TAG_INLINE "\")")
+/*   */	(ARG_S3_OBJECT_TAG_INLINE, bpo::bool_switch(&this->doS3ObjectTagInline),
+            "Activate object tagging operations during other benchmarking phases: "
+            "Adding of object tags in create objects phase, "
+            "reading of tags in stat objects phase and deletion of tags in delete objects phase.")
+/*   */	(ARG_S3_OBJECT_TAG_INLINE_VERIFY, bpo::bool_switch(&this->doS3ObjectTagInlineVerify),
+            "Verify the correctness of S3 object tagging results (requires \"--" ARG_S3_OBJECT_TAG_INLINE "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -529,8 +535,6 @@ void ProgArgs::defineAllowedArgs()
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
-/*s3m*/ (ARG_METADATA_LONG, bpo::bool_switch(&this->useS3Metadata),
-                "Write and validate object metadata like tags")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
@@ -749,8 +753,10 @@ void ProgArgs::defineDefaults()
 	this->doS3AclVerify = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
-	this->doS3TagInline = false;
-	this->doS3TagInlineVerify = false;
+	this->doS3BucketTagInline = false;
+	this->doS3BucketTagInlineVerify = false;
+    this->doS3ObjectTagInline = false;
+    this->doS3ObjectTagInlineVerify = false;
 }
 
 /**
@@ -2943,8 +2949,10 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
-    doS3TagInline = tree.get<bool>(ARG_S3TAGINLINE_LONG);
-    doS3TagInlineVerify = tree.get<bool>(ARG_S3TAGINLINEVERIFY_LONG);
+    doS3BucketTagInline = tree.get<bool>(ARG_S3_BUCKET_TAG_INLINE);
+    doS3BucketTagInlineVerify = tree.get<bool>(ARG_S3_BUCKET_TAG_INLINE_VERIFY);
+    doS3ObjectTagInline = tree.get<bool>(ARG_S3_OBJECT_TAG_INLINE);
+    doS3ObjectTagInlineVerify = tree.get<bool>(ARG_S3_OBJECT_TAG_INLINE_VERIFY);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
