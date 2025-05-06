@@ -4129,6 +4129,64 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
 
 #endif // S3_SUPPORT
 }
+/**
+ * Throw an informative WorkerException if the s3 request outcome has the error flag set.
+ *
+ * @request s3 request that was sent.
+ * @outcome s3 request outcome.
+ * @failMessage human-friendly error message, e.g. "Object upload failed."
+ * @objectName name of object to which this error applies, can be empty.
+ * @throw WorkerException on error.
+ */
+template <typename REQUESTTYPE, typename OUTCOMETYPE>
+void LocalWorker::s3ModeThrowOnError(
+        const REQUESTTYPE& request, const OUTCOMETYPE& outcome,
+        const std::string& failMessage, const std::string& bucketName,
+        const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    IF_LIKELY(outcome.IsSuccess() )
+        return;
+
+    const auto s3Error = outcome.GetError();
+
+    // Check if the error is BadDigest and print the request body
+
+    IF_UNLIKELY(outcome.GetError().GetExceptionName() == "BadDigest") {
+        std::cerr << "BadDigest error for MD5: " << request.GetContentMD5() << std::endl;
+
+        // Get the request body stream
+        auto bodyStreamPtr = request.GetBody();
+        if (bodyStreamPtr) {
+            // Seek to the end to get the size
+            bodyStreamPtr->seekg(0, std::ios_base::end);
+            size_t size = bodyStreamPtr->tellg();
+            // Seek back to the beginning
+            bodyStreamPtr->seekg(0, std::ios_base::beg);
+
+            // Read the entire body into a string
+            std::string body(size, '\0');
+            if (bodyStreamPtr->read(&body[0], size)) {
+                body.resize(bodyStreamPtr->gcount()); // Ensure we only keep valid data
+                std::cerr << "Body size: " << size << " bytes" << std::endl;
+                std::cerr << "=== Begin Request Body ===" << std::endl;
+                std::cerr << body << std::endl;
+                std::cerr << "=== End Request Body ===" << std::endl;
+            }
+        } else {
+            std::cerr << "No request body available." << std::endl;
+        }
+
+    }
+
+
+    s3ModeThrowOnError(outcome, failMessage, bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
 
 /**
  * Add server-side encryption to s3 request.
@@ -4593,7 +4651,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
 	IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
-        s3ModeThrowOnError(outcome, "Object upload failed.", bucketName, objectName);
+        s3ModeThrowOnError(request, outcome, "Object upload failed.", bucketName, objectName);
 
 	if(blockSize)
 	{
@@ -4652,8 +4710,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
-        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
-            bucketName, objectName);
+        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.", bucketName, objectName);
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
 
@@ -5729,7 +5786,7 @@ void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectN
 
     OPLOG_POST_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
-    s3ModeThrowOnError(outcome, "Putting object ACL failed.", bucketName, objectName);
+    s3ModeThrowOnError(request, outcome, "Putting object ACL failed.", bucketName, objectName);
 
 #endif // S3_SUPPORT
 }
@@ -5893,17 +5950,17 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
 
     OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
 
-    const auto putTagOutcome = s3Client->PutObjectTagging(
-        S3::PutObjectTaggingRequest()
+    auto putTagRequest = S3::PutObjectTaggingRequest()
             .WithBucket(bucketName)
             .WithKey(objectName)
-            .WithTagging(S3::Tagging().AddTagSet(tag))
-    );
+            .WithTagging(S3::Tagging().AddTagSet(tag));
+
+    const auto putTagOutcome = s3Client->PutObjectTagging(putTagRequest);
 
     OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
                   0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
 
-    s3ModeThrowOnError(putTagOutcome, "Put object tagging failed.", bucketName, objectName);
+    s3ModeThrowOnError(putTagRequest, putTagOutcome, "Put object tagging failed.", bucketName, objectName);
 
 #endif // S3_SUPPORT
 }

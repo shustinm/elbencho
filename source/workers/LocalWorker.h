@@ -211,9 +211,13 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjects();
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
-		template <typename OUTCOMETYPE>
-		void s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
-		    const std::string& bucketName, const std::string& objectName="");
+        template <typename OUTCOMETYPE>
+        void s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+                                const std::string& bucketName, const std::string& objectName="");
+        template <typename REQUESTTYPE, typename OUTCOMETYPE>
+        void s3ModeThrowOnError(const REQUESTTYPE& request, const OUTCOMETYPE& outcome,
+                                const std::string& failMessage, const std::string& bucketName,
+                                const std::string& objectName);
         template <typename REQUESTTYPE>
             void s3ModeAddServerSideEncryption(REQUESTTYPE& request);
 		void s3ModeCreateBucket(std::string bucketName);
