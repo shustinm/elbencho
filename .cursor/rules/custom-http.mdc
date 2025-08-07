@@ -1,0 +1,391 @@
+---
+description: Custom HTTP Client
+alwaysApply: false
+---
+# Architecting Custom HTTP Clients in the AWS SDK for C++: A Definitive Guide for High-Performance Applications
+
+### Executive Summary
+
+The AWS SDK for C++ provides a robust and flexible framework for interacting with AWS services, yet the mechanism for customizing its underlying HTTP transport layer is a common source of confusion, largely due to historical evolution within the SDK's architecture. This report provides a definitive, expert-level guide to the modern, canonical methodology for implementing custom HTTP clients, with a specific focus on the requirements of high-performance applications such as the `elbencho` S3 benchmarking tool.
+
+The central thesis of this report is twofold. First, the correct and only supported modern approach for overriding the HTTP stack is through a global `Aws::Http::HttpClientFactory`. This factory is provided to the SDK at application startup via the `Aws::SDKOptions` struct during the mandatory `Aws::InitAPI` call. Older patterns involving the injection of an `HttpClientFactory` directly into a service client's constructor are deprecated and lead to architectural inconsistencies and potential runtime errors.[1, 2]
+
+Second, for the specific, high-throughput use case of an S3 benchmarking tool, attempting to optimize the standard `Aws::S3::S3Client` is a suboptimal strategy. The SDK provides a purpose-built alternative, the `Aws::S3::S3CrtClient`, which is architecturally superior for this task.[3] This client leverages the AWS Common Runtime (CRT), a set of high-performance C libraries designed for optimal throughput, featuring an asynchronous, event-loop-based I/O model and automatic request parallelization for large object transfers. While this report provides a comprehensive guide to general HTTP client customization, the primary recommendation for the `elbencho` project is to architect its solution around the `S3CrtClient`.
+
+## Section 1: The Modern Architectural Paradigm: Global Configuration via `SDKOptions`
+
+A clear understanding of the AWS SDK for C++'s initialization and configuration model is fundamental to any customization effort. The SDK has undergone a significant architectural evolution, moving from a fragmented, per-client configuration model to a centralized, globally-managed paradigm. This shift is the primary source of outdated information and confusion among developers.
+
+### 1.1 The Evolution of SDK Configuration: From Per-Client to Global
+
+In versions of the SDK prior to approximately 0.12.x, it was common practice to configure aspects of a service client, including the HTTP implementation, by passing configuration objects directly to the client's constructor.[4, 5] However, this approach presented significant challenges. The SDK's dependencies, such as `libcurl` and `OpenSSL`, require global initialization and teardown. The older model could lead to the SDK silently mutating this global state, creating unpredictable behavior and resource management problems, especially in complex applications that might use these libraries for other purposes.[1]
+
+To address these shortcomings, the SDK introduced a mandatory, explicit initialization and shutdown lifecycle, managed by two key functions: `Aws::InitAPI(const Aws::SDKOptions& options)` and `Aws::ShutdownAPI(const Aws::SDKOptions& options)`.[2, 6] This change enforces a clear contract: all global resources required by the SDK are to be managed within this lifecycle. The `Aws::SDKOptions` struct was introduced as the sole container for all SDK-wide configuration options, including logging, memory management, and, crucially, the HTTP client implementation.[1, 7]
+
+A direct and intentional consequence of this architectural refactoring is that the `HttpClientFactory` is now a global resource installed once at application startup.[1] It no longer makes sense to pass a factory to individual service client constructors, as the HTTP stack is an application-wide concern. This modern design ensures that all components of the SDK operate with a consistent, explicitly configured set of global resources. While older documentation or code examples may still show the per-client injection pattern, it is functionally deprecated and should be avoided in all modern development.
+
+### 1.2 The `Aws::SDKOptions` Workflow in Detail
+
+Implementing a custom HTTP client begins with the correct use of `Aws::SDKOptions` during the SDK's initialization phase. The process is precise and leverages modern C++ features to ensure safety and correctness, particularly concerning memory management.
+
+The key member for this task is `options.httpOptions.httpClientFactory_create_fn`. This member is not a `std::shared_ptr` to a factory instance, but rather a `std::function` (a closure or lambda) that, when invoked, returns a `std::shared_ptr` to your custom factory.[7]
+
+The use of a lambda is not a stylistic choice; it is a critical mechanism for deferred allocation. The `Aws::InitAPI` function performs several setup tasks in a specific order, one of which is the installation of a custom memory manager if one is provided in `options.memoryManagementOptions`.[1] The `options` struct itself is passed to `InitAPI` *before* this memory manager becomes active. If `httpClientFactory_create_fn` were to hold a pre-constructed `std::shared_ptr`, the factory object would have been allocated using the global `new` operator, bypassing the SDK's memory management system. By accepting a lambda, the SDK defers the *execution* of the allocation (`Aws::MakeShared<...>()`) to a point *inside* the `InitAPI` logic, after the custom memory manager is safely installed. This ensures the custom factory itself is allocated using the same memory strategy as the rest of the SDK, preventing memory fragmentation and potential corruption.[1, 7]
+
+A typical implementation follows this pattern:
+
+```cpp
+// In your application's main entry point
+#include <aws/core/Aws.h>
+#include "MyCustomHttpClientFactory.h" // Your custom factory header
+
+int main() {
+    Aws::SDKOptions options;
+    
+    // Assign a lambda to the create function pointer.
+    // This lambda will be called by InitAPI at the appropriate time.
+    options.httpOptions.httpClientFactory_create_fn =() {
+        // Use Aws::MakeShared for memory management compliance.
+        // "MyFactoryTag" is an allocation tag for debugging.
+        return Aws::MakeShared<MyCustomHttpClientFactory>("MyFactoryTag");
+    };
+
+    // Initialize the SDK with the custom options.
+    Aws::InitAPI(options);
+
+    {
+        //... Your application logic using AWS service clients...
+    }
+
+    // Shut down the SDK, which also cleans up the factory.
+    Aws::ShutdownAPI(options);
+
+    return 0;
+}
+```
+
+The following table provides a clear comparison between the modern, correct approach and the deprecated pattern.
+
+**Table 1: Comparison of HTTP Client Configuration Methods**
+
+| Feature | Modern Approach (Global `SDKOptions`) | Deprecated Approach (Per-Client Constructor) |
+| :--- | :--- | :--- |
+| **SDK Version** | Recommended for v0.12.x and later [1] | Pre-v0.12.x; now obsolete [4] |
+| **Mechanism** | Set `options.httpOptions.httpClientFactory_create_fn` and pass `options` to `Aws::InitAPI`.[7] | Pass `std::shared_ptr<HttpClientFactory>` to the `Aws::S3::S3Client` constructor.[5] |
+| **Scope** | Application-wide, global singleton.[1, 2] | Per-service-client instance. |
+| **Pros** | Centralized configuration, clear resource lifecycle, consistent with logging and memory management. | None in modern SDKs. |
+| **Cons** | Requires strict adherence to the `InitAPI`/`ShutdownAPI` lifecycle. | Deprecated, can conflict with global initializers, leads to confusing and unmaintainable code. |
+
+## Section 2: The Core Interfaces: Deconstructing `HttpClient` and `HttpClientFactory`
+
+At the heart of the SDK's HTTP abstraction are two primary interfaces: `Aws::Http::HttpClientFactory` and `Aws::Http::HttpClient`. A successful custom implementation requires a thorough understanding of the contracts defined by these abstract base classes.
+
+### 2.1 The `Aws::Http::HttpClientFactory` Abstract Class
+
+This class serves as the blueprint for any object that can produce HTTP clients and requests. To create a custom implementation, a developer must create a concrete class that inherits from `Aws::Http::HttpClientFactory` and provides implementations for all of its pure virtual functions.[8]
+
+The factory is responsible for two main tasks: creating `HttpClient` instances that will execute requests and creating `HttpRequest` objects that represent a single transaction. It also provides hooks for managing any global state required by the underlying HTTP library (e.g., calling `curl_global_init` for `libcurl`).[8]
+
+**Table 2: `Aws::Http::HttpClientFactory` Interface Definition**
+
+| Function Signature | Return Type | Description |
+| :--- | :--- | :--- |
+| `CreateHttpClient(const Aws::Client::ClientConfiguration& clientConfig) const` | `std::shared_ptr<HttpClient>` | The core factory method. Creates an instance of your custom HTTP client, configured with the provided per-client settings.[8, 9] |
+| `CreateHttpRequest(const Aws::String& uri, HttpMethod method, const Aws::IOStreamFactory& streamFactory) const` | `std::shared_ptr<HttpRequest>` | Creates a request object for a given string URI. The `streamFactory` is a closure used to create the response body stream.[8] |
+| `CreateHttpRequest(const URI& uri, HttpMethod method, const Aws::IOStreamFactory& streamFactory) const` | `std::shared_ptr<HttpRequest>` | Overload that creates a request object from a parsed `Aws::Http::URI` object.[8] |
+| `InitStaticState()` | `void` | A hook for initializing any global state your HTTP implementation requires (e.g., `curl_global_init`). Called by the SDK.[8] |
+| `CleanupStaticState()` | `void` | A hook for cleaning up global state initialized in `InitStaticState`. Called by the SDK during `ShutdownAPI`.[8] |
+
+### 2.2 The `Aws::Http::HttpClient` Abstract Class
+
+This interface defines the contract for an object capable of executing an HTTP request. The central method is `MakeRequest`, which takes an `HttpRequest` object, sends it over the network, and returns an `HttpResponse` object. Any custom client must, at a minimum, provide a concrete implementation of this functionality. The SDK's internal service clients (like `S3Client`) use this interface to perform all their network communication.[10, 11]
+
+### 2.3 Implementation Patterns: Extension vs. Full Abstraction
+
+When deciding how to implement these interfaces, developers face a classic architectural choice: extend an existing implementation or build a new one from the ground up.
+
+#### Pattern 1: Extension via Inheritance (Recommended)
+
+For the vast majority of use cases, the most practical and efficient approach is to inherit from one of the SDK's existing concrete `HttpClient` implementations, such as `Aws::Http::CurlHttpClient` (for Linux/macOS) or `Aws::Http::WinHttpSyncHttpClient` (for Windows).[11, 12] This pattern leverages the robust, battle-tested code that handles the complexities of connection pooling, TLS negotiation, proxy support, and error handling.
+
+The SDK's designers anticipated the need for customizations and provided virtual functions that can be overridden in a derived class. There are two primary hooks:
+
+  * **`MakeRequest`**: Overriding this method is the most flexible approach. It allows a developer to inspect and modify the `Aws::Http::HttpRequest` object (e.g., to add custom headers) before passing it to the base class's implementation for execution. This acts as a powerful interceptor.
+  * **`OverrideOptionsOnConnectionHandle`**: This hook is for more specialized, low-level customizations. It provides direct access to the underlying `libcurl` connection handle just before a request is made, allowing for the configuration of transport options that are not exposed through the `HttpRequest` interface (e.g., setting DNS cache timeouts).[11, 13]
+
+#### Pattern 2: Full Abstraction via Composition or Wrapping
+
+A more complex but powerful pattern involves writing a completely new implementation of the `HttpClient` interface that wraps a third-party HTTP library not natively supported by the SDK (e.g., `boost::beast` or `cpp-httplib`). This approach provides maximum control over the entire network stack but comes at a significant engineering cost. The developer becomes responsible for implementing all the logic to translate between `Aws::Http::HttpRequest`/`HttpResponse` objects and the native types of the chosen library, as well as managing connection lifecycles, timeouts, and other transport-level details.
+
+This pattern should only be considered if there is a hard requirement to use a specific, unsupported HTTP stack. For most goals, including those of a high-performance benchmarking tool, the extension pattern or the use of the purpose-built `S3CrtClient` is far more pragmatic.
+
+## Section 3: A Production-Ready Implementation Walkthrough
+
+This section synthesizes the architectural principles into a complete, step-by-step guide for creating and integrating a custom HTTP client. The example will follow the recommended inheritance pattern, extending `CurlHttpClient` by overriding `MakeRequest` to add a custom `User-Agent` suffix.
+
+### 3.1 Prerequisite: Build System Configuration (CMake)
+
+A correctly configured build system is the first step. The application must be able to find and link against the AWS SDK for C++ libraries. If extending `CurlHttpClient` on Windows, the SDK must be built with `curl` support enabled, as `WinHTTP` is the default.[4, 14]
+
+A sample `CMakeLists.txt` for an application using a custom client would look like this:
+
+```cmake
+cmake_minimum_required(VERSION 3.13)
+project(MyAwsApp CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find the AWS SDK for C++. This assumes it was installed to a standard location.
+# If not, you may need to set CMAKE_PREFIX_PATH.
+find_package(AWSSDK REQUIRED COMPONENTS s3)
+
+add_executable(my_app
+    main.cpp
+    MyCustomHttpClient.cpp
+    MyCustomHttpClientFactory.cpp
+)
+
+# Link your application against the AWS SDK libraries.
+# The find_package command populates the AWSSDK_LIBRARIES variable.
+target_link_libraries(my_app PRIVATE ${AWSSDK_LIBRARIES})
+```
+
+When building the SDK itself on Windows to use `curl`, the following CMake flags are essential [14]:
+`cmake..\aws-sdk-cpp -DFORCE_CURL=ON -DCURL_INCLUDE_DIR='<path_to_curl_include>' -DCURL_LIBRARY='<path_to_curl_lib>'`
+
+### 3.2 Step-by-Step Code Implementation
+
+The implementation is broken into three parts: the custom client, the custom factory, and the main application logic.
+
+**Code Block 1: The Custom HttpClient (`MyCustomHttpClient.h` and `.cpp`)**
+
+This class inherits from `CurlHttpClient` and overrides `MakeRequest` to inject its custom behavior.
+
+*MyCustomHttpClient.h*
+
+```cpp
+#pragma once
+
+#include <aws/core/http/curl/CurlHttpClient.h>
+
+class MyCustomHttpClient : public Aws::Http::CurlHttpClient
+{
+public:
+    // Inherit the constructor from the base class
+    using Aws::Http::CurlHttpClient::CurlHttpClient;
+
+    // Override MakeRequest to intercept and modify the request before it is sent.
+    std::shared_ptr<Aws::Http::HttpResponse> MakeRequest(
+        const std::shared_ptr<Aws::Http::HttpRequest>& request,
+        Aws::Utils::RateLimits::RateLimiterInterface* readLimiter = nullptr,
+        Aws::Utils::RateLimits::RateLimiterInterface* writeLimiter = nullptr) const override;
+};
+```
+
+*MyCustomHttpClient.cpp*
+
+```cpp
+#include "MyCustomHttpClient.h"
+#include <aws/core/http/HttpRequest.h>
+#include <aws/core/utils/memory/stl/AWSString.h>
+
+std::shared_ptr<Aws::Http::HttpResponse> MyCustomHttpClient::MakeRequest(
+    const std::shared_ptr<Aws::Http::HttpRequest>& request,
+    Aws::Utils::RateLimits::RateLimiterInterface* readLimiter,
+    Aws::Utils::RateLimits::RateLimiterInterface* writeLimiter) const
+{
+    // Add our custom logic here. For this example, we'll append to the User-Agent header.
+    Aws::String currentUserAgent = request->GetHeaderValue(Aws::Http::USER_AGENT_HEADER);
+    currentUserAgent += " Elbencho-Benchmark/1.0";
+    request->SetHeaderValue(Aws::Http::USER_AGENT_HEADER, currentUserAgent);
+
+    // Now, call the parent class's implementation to perform the actual HTTP request.
+    return Aws::Http::CurlHttpClient::MakeRequest(request, readLimiter, writeLimiter);
+}
+```
+
+**Code Block 2: The Custom HttpClientFactory (`MyCustomHttpClientFactory.h` and `.cpp`)**
+
+This factory is responsible for creating instances of `MyCustomHttpClient`.
+
+*MyCustomHttpClientFactory.h*
+
+```cpp
+#pragma once
+
+#include <aws/core/http/HttpClientFactory.h>
+
+class MyCustomHttpClientFactory : public Aws::Http::HttpClientFactory
+{
+public:
+    // The core method that creates our custom client
+    std::shared_ptr<Aws::Http::HttpClient> CreateHttpClient(
+        const Aws::Client::ClientConfiguration& clientConfiguration) const override;
+
+    // These must also be implemented
+    std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(
+        const Aws::String& uri, Aws::Http::HttpMethod method,
+        const Aws::IOStreamFactory& streamFactory) const override;
+
+    std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(
+        const Aws::Http::URI& uri, Aws::Http::HttpMethod method,
+        const Aws::IOStreamFactory& streamFactory) const override;
+
+    void InitStaticState() override;
+    void CleanupStaticState() override;
+};
+```
+
+*MyCustomHttpClientFactory.cpp*
+
+```cpp
+#include "MyCustomHttpClientFactory.h"
+#include "MyCustomHttpClient.h"
+#include <aws/core/http/standard/StandardHttpRequest.h>
+
+// Allocation tag for memory tracking
+static const char* FACTORY_ALLOCATION_TAG = "MyHttpClientFactory";
+
+std::shared_ptr<Aws::Http::HttpClient> MyCustomHttpClientFactory::CreateHttpClient(
+    const Aws::Client::ClientConfiguration& clientConfiguration) const
+{
+    // Return a shared pointer to our custom client, passing along the configuration
+    return Aws::MakeShared<MyCustomHttpClient>(FACTORY_ALLOCATION_TAG, clientConfiguration);
+}
+
+std::shared_ptr<Aws::Http::HttpRequest> MyCustomHttpClientFactory::CreateHttpRequest(
+    const Aws::String& uri, Aws::Http::HttpMethod method,
+    const Aws::IOStreamFactory& streamFactory) const
+{
+    // For requests, we can often use the standard implementation
+    return Aws::MakeShared<Aws::Http::Standard::StandardHttpRequest>(
+        FACTORY_ALLOCATION_TAG, Aws::Http::URI(uri), method);
+}
+
+std::shared_ptr<Aws::Http::HttpRequest> MyCustomHttpClientFactory::CreateHttpRequest(
+    const Aws::Http::URI& uri, Aws::Http::HttpMethod method,
+    const Aws::IOStreamFactory& streamFactory) const
+{
+    return Aws::MakeShared<Aws::Http::Standard::StandardHttpRequest>(
+        FACTORY_ALLOCATION_TAG, uri, method);
+}
+
+void MyCustomHttpClientFactory::InitStaticState()
+{
+    // If our client needed global setup, it would go here.
+    // We can call the base class's static init.
+    Aws::Http::CurlHttpClient::InitGlobalState();
+}
+
+void MyCustomHttpClientFactory::CleanupStaticState()
+{
+    // And cleanup here.
+    Aws::Http::CurlHttpClient::CleanupGlobalState();
+}
+```
+
+**Code Block 3: The Main Application (`main.cpp`)**
+
+This file ties everything together, initializing the SDK with the custom factory and using an S3 client.
+
+```cpp
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/ListBucketsRequest.h>
+#include <iostream>
+#include "MyCustomHttpClientFactory.h"
+
+static const char* APP_ALLOCATION_TAG = "MyAWSApp";
+
+int main()
+{
+    Aws::SDKOptions options;
+    options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
+
+    // Set the factory create function
+    options.httpOptions.httpClientFactory_create_fn =() {
+        return Aws::MakeShared<MyCustomHttpClientFactory>(APP_ALLOCATION_TAG);
+    };
+
+    Aws::InitAPI(options);
+    {
+        // Per-client configuration is still used to PARAMETERIZE the client
+        Aws::Client::ClientConfiguration clientConfig;
+        clientConfig.region = "us-east-1";
+        clientConfig.connectTimeoutMs = 5000; // This will be respected by MyCustomHttpClient
+
+        Aws::S3::S3Client s3Client(clientConfig);
+
+        auto outcome = s3Client.ListBuckets();
+
+        if (outcome.IsSuccess()) {
+            std::cout << "Found " << outcome.GetResult().GetBuckets().size() 
+                      << " buckets. Check logs for custom User-Agent." << std::endl;
+        } else {
+            std::cerr << "ListBuckets failed with error: " 
+                      << outcome.GetError().GetMessage() << std::endl;
+        }
+    }
+    Aws::ShutdownAPI(options);
+    return 0;
+}
+```
+
+### 3.3 Tracing the Flow: How Per-Client Config Interacts with the Global Factory
+
+A crucial point of understanding is the interplay between the global factory and the per-client `Aws::Client::ClientConfiguration`. The design elegantly separates the *what* from the *how*.
+
+1.  **Global Decision (`SDKOptions`)**: The `options.httpOptions.httpClientFactory_create_fn` setting determines *what* type of HTTP client will be used for the entire application. In our example, it dictates that all clients will be created by `MyCustomHttpClientFactory`.
+2.  **Per-Instance Parameterization (`ClientConfiguration`)**: When an `S3Client` is instantiated with a `clientConfig` object, this object determines *how* that specific client instance should be configured.[11, 15]
+3.  **The Handoff**: Internally, the `S3Client` constructor requests an `HttpClient` from the globally registered factory. During this request, it passes the `clientConfig` object to the factory's `CreateHttpClient` method.[8, 9]
+4.  **Factory Execution**: Our `MyCustomHttpClientFactory::CreateHttpClient` method receives this `clientConfig` and passes it directly to the constructor of `MyCustomHttpClient`.
+5.  **Final Configuration**: The base `CurlHttpClient` constructor within `MyCustomHttpClient` then consumes the parameters from `clientConfig` (like `connectTimeoutMs`, `proxyHost`, etc.) and applies them to the underlying `libcurl` handles it manages.[16]
+
+This architecture provides the best of both worlds: a single, globally consistent HTTP transport layer that can still be parameterized with different timeouts, regions, or proxy settings for each individual service client.
+
+## Section 4: Advanced Topics for Benchmarking and High-Performance
+
+For a specialized application like `elbencho`, simply customizing the standard client is insufficient. Achieving maximum performance requires leveraging purpose-built tools within the SDK and adhering to best practices for resource management and concurrency.
+
+### 4.1 High-Throughput S3 Client Options
+
+For a benchmarking application requiring maximum S3 throughput, the AWS SDK for C++ offers two primary high-performance strategies. The choice between them depends on the specific requirements of the benchmark.
+
+The first option is the standard `Aws::S3::S3Client` used in conjunction with the `TransferManager` class.[5] The `TransferManager` simplifies high-performance multipart uploads and downloads, managing the complexity of parallel transfers for large objects.
+
+The second option is the specialized `Aws::S3::S3CrtClient`.[3] This client is built upon the AWS Common Runtime (CRT), a set of highly optimized C libraries featuring a high-performance, event-loop based HTTP client.[3, 17] For large object transfers, the `S3CrtClient` automatically breaks down a single `GetObject` or `PutObject` call into multiple, parallel HTTP ranged requests. This allows the client to open multiple connections to S3 and transfer parts of the file concurrently, which can dramatically increase total throughput.[3] The SDK team reports that this approach can achieve performance reaching 90 Gbps on appropriately configured EC2 instances.[3]
+
+Both approaches provide robust mechanisms for high-performance data transfer with S3, and a comprehensive benchmarking tool like `elbencho` can benefit from supporting both to offer a wider range of test scenarios.
+
+### 4.2 Client Lifecycle Management and Thread Safety
+
+Instantiating an AWS service client is a non-trivial and potentially expensive operation. The constructor may perform tasks like endpoint resolution or, on EC2 instances, making network calls to the Instance Metadata Service (IMDS) to discover region or credentials.[18] For a benchmarking application that runs many tests, repeatedly creating and destroying clients will introduce significant overhead and skew results.
+
+The AWS SDK for C++ clients are designed to be thread-safe. The recommended best practice is to create a single, long-lived client instance (or a small pool of clients) at application startup and share it across all worker threads.[18] This amortizes the initial setup cost and ensures that resources like connection pools are used efficiently. For `elbencho`, a single `S3CrtClient` should be created and passed by reference or `shared_ptr` to all threads performing the benchmark measurements.
+
+### 4.3 Leveraging Asynchronous APIs
+
+To achieve the high levels of concurrency needed to saturate a network connection, a benchmarking tool must use the SDK's asynchronous APIs. For every synchronous method like `GetObject`, there is a corresponding `GetObjectAsync`.[19] These methods return immediately and notify the application of completion via a callback function or a `std::future`.
+
+Using the asynchronous APIs allows a single thread to manage hundreds or thousands of in-flight requests, which is essential for maximizing throughput, especially when dealing with the high-latency nature of internet connections. A benchmarking tool should be designed around an asynchronous core, where it fires off a large number of `*Async` requests and then waits on their collective completion to measure the total time and data transferred. This is far more efficient than dedicating one thread per synchronous request.[18]
+
+## Conclusion and Final Recommendations
+
+Successfully implementing a custom HTTP client in the AWS SDK for C++ requires adherence to its modern architectural patterns and a clear understanding of its core interfaces. The confusion surrounding this topic can be resolved by recognizing the pivotal shift to a global configuration model managed by `Aws::InitAPI` and `Aws::SDKOptions`.
+
+For the developers of the `elbencho` S3 benchmarking tool, the analysis yields a clear set of actionable recommendations:
+
+1.  **Adopt the Modern `SDKOptions` Paradigm**: All HTTP customization must be done by setting the `httpOptions.httpClientFactory_create_fn` lambda within an `Aws::SDKOptions` object passed to `Aws::InitAPI`. Disregard any outdated documentation or examples that suggest passing a factory to a client constructor.
+
+2.  **Use Inheritance for Minor Customizations**: If the goal is simply to inject minor behavior like custom headers or logging, the most effective pattern is to create a new client class that inherits from `Aws::Http::CurlHttpClient` and overrides its virtual hook methods. For maximum flexibility, override `MakeRequest` to modify the `HttpRequest` object before execution.
+
+3.  **Leverage High-Performance S3 Clients**: For accurate benchmarking, utilize the SDK's high-throughput capabilities. The `S3CrtClient` is purpose-built for maximum data transfer rates, using the AWS Common Runtime to automatically parallelize large object transfers.[3] The standard `S3Client` can also be used for high-performance operations in conjunction with the `TransferManager`.[5] Supporting both clients allows for a more comprehensive benchmarking tool.
+
+4.  **Manage Client Lifecycle Carefully**: AWS service clients are thread-safe and expensive to create. Instantiate a single `S3CrtClient` at startup and share it across all worker threads in the benchmark to ensure efficient resource use and accurate measurements.
+
+5.  **Embrace Asynchronous Operations**: To achieve the concurrency required to saturate network links and accurately measure peak performance, the implementation must exclusively use the asynchronous SDK methods (e.g., `GetObjectAsync`, `PutObjectAsync`).
+
+By following these guidelines, developers can confidently extend the AWS SDK for C++ to meet their specific needs, building robust, maintainable, and high-performance applications that are correctly aligned with the SDK's modern architecture.

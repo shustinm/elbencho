@@ -7,6 +7,7 @@
 #include "toolkits/StringTk.h"
 #include "toolkits/UnitTk.h"
 #include "toolkits/TerminalTk.h"
+#include "toolkits/ElbenchoHttpClientFactory.h"
 
 #ifdef S3_SUPPORT
     #include <aws/core/auth/AWSCredentialsProvider.h>
@@ -77,6 +78,14 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
             };
         #endif // S3_AWSCRT
 	}
+
+	// Set up custom HTTP client factory
+	LOGGER(Log_DEBUG, "Setting up custom HTTP client factory" << std::endl);
+	s3SDKOptions->httpOptions.httpClientFactory_create_fn = []()
+	{
+		LOGGER(Log_DEBUG, "Custom HTTP client factory lambda called" << std::endl);
+		return Aws::MakeShared<ElbenchoHttpClientFactory>("ElbenchoHttpClientFactory");
+	};
 
 	Aws::InitAPI(*s3SDKOptions);
 
