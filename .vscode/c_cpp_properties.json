@@ -1,0 +1,101 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            // "configurationProvider": "ms-vscode.makefile-tools",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/source",
+                "${workspaceFolder}/external/Simple-Web-Server",
+                "/opt/homebrew/include",
+                "/Users/michael.shustin/Developer/libaio/src",
+                "${workspaceFolder}/external/aws-sdk-cpp/include",
+            ],
+            "defines": [
+                "_LARGEFILE64_SOURCE",
+                "_FILE_OFFSET_BITS=64",
+                "BOOST_SPIRIT_THREADSAFE",
+                "BOOST_BIND_GLOBAL_PLACEHOLDERS",
+                "NCURSES_NOMACROS",
+                "EXE_NAME=\"elbencho\"",
+                "EXE_VERSION=\"3.0-28\"",
+                "S3_SUPPORT",
+                "BACKTRACE_SUPPORT",
+                "COREBIND_SUPPORT",
+                "LIBAIO_SUPPORT",
+                "LIBNUMA_SUPPORT",
+                "NCURSES_SUPPORT",
+                "SYNCFS_SUPPORT",
+                "SYSCALLH_SUPPORT"
+            ],
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ],
+            "compilerPath": "/usr/bin/clang++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-x64",
+            "compilerArgs": [
+                "-Wall",
+                "-Wunused-variable",
+                "-Woverloaded-virtual",
+                "-Wextra",
+                "-Wno-unused-parameter",
+                "-fmessage-length=0",
+                "-fno-strict-aliasing",
+                "-pthread",
+                "-ggdb"
+            ]
+        },
+        {
+            "name": "Mac (S3_AWSCRT)",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/source",
+                "${workspaceFolder}/external/Simple-Web-Server",
+                "/opt/homebrew/include",
+                "/Users/michael.shustin/Developer/libaio/src",
+                "/Users/michael.shustin/Developer/aws-sdk/include"
+            ],
+            "defines": [
+                "_LARGEFILE64_SOURCE",
+                "_FILE_OFFSET_BITS=64",
+                "BOOST_SPIRIT_THREADSAFE",
+                "BOOST_BIND_GLOBAL_PLACEHOLDERS",
+                "NCURSES_NOMACROS",
+                "EXE_NAME=\"elbencho\"",
+                "EXE_VERSION=\"3.0-28\"",
+                "S3_SUPPORT",
+                "BACKTRACE_SUPPORT",
+                "COREBIND_SUPPORT",
+                "LIBAIO_SUPPORT",
+                "LIBNUMA_SUPPORT",
+                "NCURSES_SUPPORT",
+                "SYNCFS_SUPPORT",
+                "SYSCALLH_SUPPORT",
+                "S3_AWSCRT"
+            ],
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ],
+            "compilerPath": "/usr/bin/clang++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-x64",
+            "compilerArgs": [
+                "-Wall",
+                "-Wunused-variable",
+                "-Woverloaded-virtual",
+                "-Wextra",
+                "-Wno-unused-parameter",
+                "-fmessage-length=0",
+                "-fno-strict-aliasing",
+                "-pthread",
+                "-ggdb"
+            ]
+        }
+    ],
+    "version": 4
+}

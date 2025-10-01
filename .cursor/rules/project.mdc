@@ -1,0 +1,56 @@
+# elbencho C++ Project Rules
+
+## Project Overview
+This is elbencho, a C++ benchmarking tool for storage and network performance testing with S3 support.
+
+## Build System
+- Uses Makefile-based build system
+- Key build parameters:
+  - CXXFLAGS_EXTRA="-I /opt/homebrew/include -I /Users/michael.shustin/Developer/libaio/src"
+  - S3_SUPPORT=1
+  - AWS_INCLUDE_DIR=/Users/michael.shustin/Developer/aws-sdk/include
+  - AWS_LIB_DIR=/Users/michael.shustin/Developer/aws-sdk/lib
+
+## Code Standards
+- C++17 standard
+- 4-space indentation, no tabs
+- 100-character line limit preferred, 120 max
+- LLVM-based code formatting
+- Use meaningful variable and function names
+- Header guards for all .h files
+
+## Project Structure
+- `source/`: Main source code
+- `source/toolkits/`: Utility toolkits
+- `source/workers/`: Worker thread implementations
+- `external/`: External dependencies
+- `bin/`: Build output directory
+- `build_helpers/`: Build configuration helpers
+
+## Dependencies
+- Boost libraries (program_options, system, thread)
+- AWS SDK for S3 support
+- libaio for async I/O
+- ncurses for terminal UI
+- libnuma for NUMA support
+
+## Coding Conventions
+- Class names use PascalCase
+- Function and variable names use camelCase
+- Constants use UPPER_SNAKE_CASE
+- Private member variables may use m_ prefix
+- Use const correctness
+- Prefer RAII and smart pointers when appropriate
+
+## Common Patterns
+- Exception handling with ProgException
+- Statistics collection and reporting
+- Multi-threaded worker patterns
+- HTTP service integration
+- S3 object storage operations
+
+
+## Build Commands
+- Release build: `make CXXFLAGS_EXTRA="-I /opt/homebrew/include -I /Users/michael.shustin/Developer/libaio/src" S3_SUPPORT=1 AWS_INCLUDE_DIR=/Users/michael.shustin/Developer/aws-sdk/include AWS_LIB_DIR=/Users/michael.shustin/Developer/aws-sdk/lib`
+- Debug build: Add `BUILD_DEBUG=1` to the above command
+- Clean: `make clean` 
