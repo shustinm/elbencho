@@ -4193,6 +4193,52 @@ void LocalWorker::s3ModeIterateCustomObjects()
 
 #ifdef S3_SUPPORT
 /**
+ * Throw an informative WorkerException from an S3 error.
+ *
+ * @s3Error the S3 error object.
+ * @failMessage human-friendly error message, e.g. "Object upload failed."
+ * @bucketName name of bucket to which this error applies.
+ * @objectName name of object to which this error applies, can be empty.
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeThrowFromError(
+        const S3ErrorType& s3Error,
+        const std::string& failMessage,
+        const std::string& bucketName,
+        const std::string& objectName)
+{
+
+    std::stringstream errStr;
+        errStr << failMessage << std::endl <<
+        "Endpoint: " << s3EndpointStr << std::endl <<
+        "Bucket: " << bucketName << std::endl <<
+        (objectName.empty() ? std::string("") : ("Object: " + objectName + "\n" )) <<
+        "Exception: " << s3Error.GetExceptionName() << std::endl <<
+        "Message: " << s3Error.GetMessage() << std::endl <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
+        "Request ID: " << s3Error.GetRequestId() << std::endl;
+
+    // Print requested HTTP headers from the error response if user specified any
+    const StringVec& requestedHeaders = progArgs->getS3ErrorHeadersVec();
+    if(!requestedHeaders.empty() )
+    {
+        const auto& responseHeaders = s3Error.GetResponseHeaders();
+        
+        for(const std::string& headerName : requestedHeaders)
+        {
+            auto it = responseHeaders.find(headerName);
+            if(it != responseHeaders.end() && !it->second.empty() )
+            {
+                errStr << headerName << ": " << it->second << std::endl;
+            }
+        }
+    }
+
+    throw WorkerException(errStr.str());
+
+}
+
+/**
  * Throw an informative WorkerException if the s3 request outcome has the error flag set.
  *
  * @outcome s3 request outcome.
@@ -4211,19 +4257,8 @@ void LocalWorker::s3ModeThrowOnError(
     IF_LIKELY(outcome.IsSuccess() )
         return;
 
-    const auto s3Error = outcome.GetError();
-
-    std::stringstream errStr;
-        errStr << failMessage << std::endl <<
-        "Endpoint: " << s3EndpointStr << std::endl <<
-        "Bucket: " << bucketName << std::endl <<
-        (objectName.empty() ? std::string("") : ("Object: " + objectName + "\n" )) <<
-        "Exception: " << s3Error.GetExceptionName() << std::endl <<
-        "Message: " << s3Error.GetMessage() << std::endl <<
-        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
-        "Request ID: " << s3Error.GetRequestId() << std::endl;
-
-    throw WorkerException(errStr.str());
+    const S3ErrorType s3Error = outcome.GetError();
+    s3ModeThrowFromError(s3Error, failMessage, bucketName, objectName);
 
 }
 #endif // S3_SUPPORT

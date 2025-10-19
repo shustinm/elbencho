@@ -38,6 +38,7 @@
 #define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
 #define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string
 #define S3ENDPOINTS_DELIMITERS		", \n\r" // delimiters for S3 endpoints list string
+#define S3ERRORHEADERS_DELIMITERS	", \n\r" // delimiters for S3 error headers list string
 #define NETDEV_DELIMITERS			", \n\r" // delimiters for net dev list string
 
 #define ENDL						<< std::endl << // just to make help text print lines shorter
@@ -561,6 +562,10 @@ void ProgArgs::defineAllowedArgs()
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
 			"\"--" ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
+/*s3e*/	(ARG_S3ERRORHEADERS_LONG, bpo::value(&this->s3ErrorHeadersStr),
+			"Comma-separated list of HTTP response headers to print in S3 error messages. "
+			"This helps debug issues by showing specific headers from failed requests. "
+			"Example: \"x-amz-request-id,x-amz-id-2,content-type\"")
 /*s3f*/	(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
@@ -841,6 +846,7 @@ void ProgArgs::defineDefaults()
 	this->doReverseSeqOffsets = false;
 	this->doInfiniteIOLoop = false;
     this->s3SessionToken = "";
+	this->s3ErrorHeadersStr = "";
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
 	this->numRWMixReadThreads = 0;
@@ -1096,6 +1102,7 @@ void ProgArgs::checkArgs()
 	parseGPUIDs();
 	parseRandAlgos();
 	parseS3Endpoints();
+	parseS3ErrorHeaders();
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -2394,6 +2401,30 @@ void ProgArgs::parseS3Endpoints()
 }
 
 /**
+ * Parse S3 error headers list. Do nothing if given list is empty.
+ */
+void ProgArgs::parseS3ErrorHeaders()
+{
+#ifndef S3_SUPPORT
+	if(!s3ErrorHeadersStr.empty() )
+		throw ProgException("S3 error headers defined, but built without S3 support.");
+#endif // S3_SUPPORT
+
+	if(s3ErrorHeadersStr.empty() )
+		return; // nothing to do
+
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(s3ErrorHeadersStr, S3ERRORHEADERS_DELIMITERS, s3ErrorHeadersVec);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	TranslatorTk::eraseEmptyStringsFromVec(s3ErrorHeadersVec);
+
+	// trim whitespace from each header name
+	for(std::string& header : s3ErrorHeadersVec)
+		boost::trim(header);
+}
+
+/**
  * Parse network interface devices list. Do nothing if given list is empty.
  *
  * @throw ProgException if a problem is found, e.g. given list was not empty, but parsed
@@ -3385,6 +3416,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
+	s3ErrorHeadersStr = tree.get<std::string>(ARG_S3ERRORHEADERS_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
@@ -3532,6 +3564,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
+	outTree.put(ARG_S3ERRORHEADERS_LONG, s3ErrorHeadersStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
