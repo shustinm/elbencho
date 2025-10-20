@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <iterator>
 #include <sys/mman.h>
 #include <sys/socket.h>
 
@@ -5904,7 +5905,9 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
             s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
-		IF_UNLIKELY( ( (size_t)outcome.GetResult().GetContentLength() < blockSize) &&
+        auto &result = outcome.GetResult();
+
+		IF_UNLIKELY( ( (size_t)result.GetContentLength() < blockSize) &&
             !ignoreS3Errors)
 		{
             throw WorkerException(std::string("Object too small. ") +
@@ -5913,11 +5916,29 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
                 "Object: " + objectName + "; "
                 "Offset: " + std::to_string(currentOffset) + "; "
                 "Requested blocksize: " + std::to_string(blockSize) + "; "
-                "Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
+                "Received length: " + std::to_string(result.GetContentLength()));
 		}
 
-		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBuf, gpuIOBuf, blockSize, currentOffset);
+        try 
+        {
+            ((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
+            ((*this).*funcPostReadBlockChecker)(ioBuf, gpuIOBuf, blockSize, currentOffset);
+        }
+		catch(const WorkerException& e)
+		{
+
+            std::stringstream errStr;
+
+            errStr << e.what() << std::endl
+                   << "Endpoint: " << s3EndpointStr << std::endl
+                   << "Bucket: " << bucketName << std::endl
+                   << "Object: " << objectName << std::endl
+                   << "Request ID: " << result.GetRequestId() << std::endl
+                   << "ETag: " << result.GetETag() << std::endl;
+
+            throw WorkerException(errStr.str());
+        }
+
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
