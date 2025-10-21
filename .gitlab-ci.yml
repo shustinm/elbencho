@@ -1,0 +1,56 @@
+default:
+  # Build command: docker build -f build_helpers/docker/Dockerfile.alpine-static.local --target base .
+  image: 110450271409.dkr.ecr.eu-west-1.amazonaws.com/dev/elbencho:base-v1
+  tags:
+    - aws-general-runner-medium
+
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+  variables:
+    BACKTRACE_SUPPORT: "0"
+    ALTHTTPSVC_SUPPORT: "0"
+    S3_SUPPORT: "1"
+    S3_AWSCRT: "0"
+    USE_MIMALLOC: "1"
+    BUILD_STATIC: "1"
+  script:
+    - mkdir -p artifacts
+    - BIN_PATH=artifacts make -j $(nproc)
+    - echo "EXE_VERSION=$(make version)" > build.env  # This prevents the need for Makefile in the deploy image
+  artifacts:
+    paths:
+      - artifacts/
+    reports:
+      dotenv: build.env
+    expire_in: 3 day
+  cache:
+    paths:
+      - external/
+
+deploy:
+  stage: deploy
+  image: releases-docker.jfrog.io/jfrog/jfrog-cli-v2-jf:latest
+  rules:
+    - if: $CI_MERGE_REQUEST_IID  # Run on merge requests
+    - if: $CI_COMMIT_TAG         # Run on tagged commits
+  script:
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        EXE_VERSION=$CI_COMMIT_TAG
+      elif [ -n "$CI_MERGE_REQUEST_IID" ]; then
+        EXE_VERSION=${EXE_VERSION}.mr${CI_MERGE_REQUEST_IID}.${CI_COMMIT_SHORT_SHA}
+      fi
+    - TARBALL_NAME="elbencho-$EXE_VERSION-static-$(uname -m).tar.gz"
+    - tar -czf $TARBALL_NAME -C ./artifacts elbencho
+    - echo "Deploying $TARBALL_NAME to Artifactory..."
+    - jf rt upload --url=$ARTIFACTORY_URL --user=$ARTIFACTORY_USER --password=$ARTIFACTORY_PASSWORD $TARBALL_NAME files/bencho/$TARBALL_NAME
+  dependencies:
+    - build
