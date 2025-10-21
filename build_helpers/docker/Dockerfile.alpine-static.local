@@ -8,7 +8,7 @@
 # To build and extract a tar file with a static binary, activate the non-default stages like this:
 # docker build -t elbencho-local --target export-tar --output type=local,dest=./packaging -f build_helpers/docker/Dockerfile.alpine-static.local .
 
-FROM alpine:3 AS builder
+FROM alpine:3 AS base
 
 ARG ELBENCHO_MARCH
 ARG NUM_JOBS
@@ -22,6 +22,8 @@ RUN apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
     brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
     libpsl-static c-ares-dev zstd-static && \
     apk update && apk upgrade
+
+FROM base AS builder
 
 COPY ./ /root/elbencho
 
