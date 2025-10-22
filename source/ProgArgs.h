@@ -180,6 +180,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
 #define ARG_S3CHECKSUM_ALGO_2_LONG  "s3checksumalgo"  // compat alias (too long name)
 #define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
+#define ARG_S3ERRORHEADERS_LONG     "s3errheaders"
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
@@ -474,6 +475,8 @@ class ProgArgs
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+		std::string s3ErrorHeadersStr; // user-given comma-separated list of HTTP headers for errors
+		StringVec s3ErrorHeadersVec; // s3ErrorHeadersStr broken down into individual header names
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
@@ -560,6 +563,7 @@ class ProgArgs
 		void parseGPUIDs();
 		void parseRandAlgos();
 		void parseS3Endpoints();
+		void parseS3ErrorHeaders();
 		void parseNetDevs();
 		void scanCustomTree();
 		void loadCustomTreeFile();
@@ -726,6 +730,8 @@ class ProgArgs
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
+        std::string getS3ErrorHeadersStr() const { return s3ErrorHeadersStr; }
+        const StringVec& getS3ErrorHeadersVec() const { return s3ErrorHeadersVec; }
         bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
