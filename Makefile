@@ -2,6 +2,10 @@
 # Use "make help" to find out about configuration options.
 #
 
+# Use $(MAKE) to call make recursively. This preserves job flags (like -j)
+# and other make variables.
+MAKE := $(MAKE)
+
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
 EXE_VER_MINOR      ?= 0
@@ -528,6 +532,13 @@ deb: | prepare-buildroot
 version:
 	@echo $(EXE_VERSION)
 
+lsp: compile_commands
+
+compile_commands:
+	@echo "[DELETE] Cleaning project to ensure a full build for bear"
+	@$(MAKE) clean
+	@echo "[BEAR] Running bear to generate compile_commands.json"
+	@bear -- $(MAKE)
 
 help:
 	@echo 'Optional Build Features:'
@@ -595,13 +606,14 @@ help:
 	@echo '   uninstall         - Uninstall executable from /usr/local/bin'
 	@echo '   rpm               - Create RPM package file'
 	@echo '   deb               - Create Debian package file'
+	@echo '   lsp               - Create compile_commands.json using bear for LSPs'
 	@echo '   help              - Print this help message'
 	@echo
 	@echo 'Note: Use "make clean-all" when changing any optional build features.'
 
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
-features-info help prepare-buildroot rpm version
+features-info help prepare-buildroot rpm version lsp compile_commands
 
 
 .DEFAULT_GOAL := all
