@@ -565,6 +565,7 @@ help:
 	@echo '   uninstall         - Uninstall executable from /usr/local/bin'
 	@echo '   rpm               - Create RPM package file'
 	@echo '   deb               - Create Debian package file'
+	@echo '   lsp               - Create compile_commands.json using bear for LSPs'
 	@echo '   help              - Print this help message'
 	@echo
 	@echo 'Note: Use "make clean-all" when changing any optional build features.'
