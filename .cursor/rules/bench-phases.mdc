@@ -1,0 +1,192 @@
+Adding New Benchmark Phases to Elbencho
+
+This guide explains how to add new benchmark phases to elbencho, using the S3 metadata phases as practical examples.
+
+## Overview
+Benchmark phases represent distinct stages of testing that elbencho executes (e.g., create, read, stat, delete). Each phase runs sequentially and can be conditionally enabled based on command-line arguments. New phases are typically added alongside new command-line parameters.
+
+## Step-by-Step Guide
+
+### 1. Define Phase Name Constant
+In `source/Common.h`, add a constant for the phase name (this is used for logging/display):
+```cpp
+// Phase name constants (near the top of Common.h)
+#define PHASENAME_YOUR_PHASE_NAME    "YOUR_PHASE"
+```
+
+### 2. Add Phase to Enum
+In `source/Common.h`, add your phase to the `BenchPhase` enum:
+```cpp
+enum BenchPhase
+{
+    // ... existing phases ...
+    BenchPhase_YOUR_PHASE_NAME,
+};
+```
+
+### 3. Register Phase in Coordinator
+In `source/Coordinator.cpp`, add your phase to the `allBenchPhasesArray` in `runBenchmarks()`:
+```cpp
+void Coordinator::runBenchmarks()
+{
+    std::array allBenchPhasesArray
+    {
+        BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
+        BenchPhaseConfig { BenchPhase_YOUR_PHASE_NAME, progArgs.getRunYourPhase() },
+        // ... other phases ...
+    };
+}
+```
+
+**Important:** The order matters! Phases execute in the order defined in this array. Consider logical sequencing (e.g., create before read, read before delete).
+
+### 4. Implement Phase Logic in Workers
+Add phase handling in worker implementation files:
+
+**In `source/workers/RemoteWorker.cpp`:**
+```cpp
+void RemoteWorker::run()
+{
+    switch(benchPhase)
+    {
+        case BenchPhase_YOUR_PHASE_NAME:
+        {
+            startBenchPhase();
+            break;
+        }
+        // ... other cases ...
+    }
+}
+```
+
+**In `source/workers/LocalWorker.cpp`:**
+Add the actual implementation logic. Common patterns:
+- Iterate over buckets: `s3ModeIterateBuckets()`
+- Iterate over objects: `s3ModeIterateObjects()`
+- Add phase-specific operations within these iteration functions
+
+```cpp
+void LocalWorker::s3ModeIterateBuckets()
+{
+    // ... iteration logic ...
+    
+    if(benchPhase == BenchPhase_YOUR_PHASE_NAME)
+    {
+        yourPhaseOperation(bucketName);
+    }
+}
+```
+
+### 5. Add Phase Control in ProgArgs
+Since phases are usually enabled via command-line arguments, add getter methods in `source/ProgArgs.h`:
+```cpp
+class ProgArgs
+{
+    public:
+        bool getRunYourPhase() const { return yourPhaseCondition; }
+};
+```
+
+This getter is called in step 3 to determine if the phase should run.
+
+## Real Example: S3 Metadata Phases
+
+The commits added six new S3 metadata phases for bucket and object operations:
+
+### Phase Definitions (Common.h):
+```cpp
+#define PHASENAME_PUT_S3_BUCKET_METADATA  "PUT_S3_BUCKET_META"
+#define PHASENAME_GET_S3_BUCKET_METADATA  "GET_S3_BUCKET_META"
+#define PHASENAME_DEL_S3_BUCKET_METADATA  "DEL_S3_BUCKET_META"
+#define PHASENAME_PUT_S3_OBJECT_METADATA  "PUT_S3_OBJECT_META"
+#define PHASENAME_GET_S3_OBJECT_METADATA  "GET_S3_OBJECT_META"
+#define PHASENAME_DEL_S3_OBJECT_METADATA  "DEL_S3_OBJECT_META"
+
+enum BenchPhase {
+    BenchPhase_PUT_S3_BUCKET_MD,
+    BenchPhase_GET_S3_BUCKET_MD,
+    BenchPhase_DEL_S3_BUCKET_MD,
+    BenchPhase_PUT_S3_OBJECT_MD,
+    BenchPhase_GET_S3_OBJECT_MD,
+    BenchPhase_DEL_S3_OBJECT_MD,
+};
+```
+
+### Phase Registration (Coordinator.cpp):
+```cpp
+std::array allBenchPhasesArray
+{
+    BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
+    BenchPhaseConfig { BenchPhase_PUT_S3_BUCKET_MD, progArgs.getRunS3PutBucketMetadata() },
+    BenchPhaseConfig { BenchPhase_STATDIRS, progArgs.getRunS3StatDirs() },
+    BenchPhaseConfig { BenchPhase_GET_S3_BUCKET_MD, progArgs.getRunS3GetBucketMetadata() },
+    BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
+    BenchPhaseConfig { BenchPhase_PUT_S3_OBJECT_MD, progArgs.getRunS3PutObjectMetadata() },
+    BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
+    BenchPhaseConfig { BenchPhase_GET_S3_OBJECT_MD, progArgs.getRunS3GetObjectMetadata() },
+    // ... more phases ...
+    BenchPhaseConfig { BenchPhase_DEL_S3_OBJECT_MD, progArgs.getRunS3DelObjectMetadata() },
+    BenchPhaseConfig { BenchPhase_DELETEFILES, progArgs.getRunDeleteFilesPhase() },
+    BenchPhaseConfig { BenchPhase_DEL_S3_BUCKET_MD, progArgs.getRunS3DelBucketMetadata() },
+};
+```
+
+Note the logical ordering: PUT metadata phases after creation, GET metadata phases during stat, DEL metadata phases before deletion.
+
+### Phase Implementation (LocalWorker.cpp):
+```cpp
+void LocalWorker::s3ModeIterateBuckets()
+{
+    if(benchPhase == BenchPhase_PUT_S3_BUCKET_MD)
+    {
+        if (progArgs->getDoS3BucketTagging())
+            s3ModeCreateBucketTagging(bucketName);
+        
+        if (progArgs->getDoS3ObjectLockConfiguration())
+            s3ModePutObjectLockConfiguration(bucketName);
+        
+        if (progArgs->getDoS3BucketVersioning())
+            s3ModePutBucketVersioning(bucketName, false);
+    }
+    
+    if(benchPhase == BenchPhase_GET_S3_BUCKET_MD)
+    {
+        if (progArgs->getDoS3BucketTagging())
+            s3ModeGetBucketTagging(bucketName);
+        
+        if (progArgs->getDoS3ObjectLockConfiguration())
+            s3ModeGetObjectLockConfiguration(bucketName);
+        
+        if (progArgs->getDoS3BucketVersioning())
+            s3ModeGetBucketVersioning(bucketName);
+    }
+}
+```
+
+## Phases and Command-Line Arguments
+
+Phases are typically controlled by command-line arguments. The relationship:
+1. User passes argument (e.g., `--s3btag`)
+2. Argument sets a flag in ProgArgs (e.g., `doS3BucketTag`)
+3. Getter method checks condition (e.g., `getRunS3PutBucketMetadata()` checks if any bucket metadata operations are requested)
+4. Coordinator uses getter to enable phase
+5. Worker checks both the phase AND the specific flag to execute operations
+
+This pattern allows multiple related operations to share phases while being individually controllable.
+
+## Best Practices
+
+1. **Logical Ordering**: Place phases in a sensible order (create → read → update → delete)
+2. **Conditional Logic**: Use granular conditionals within phases to support multiple features
+3. **Phase Naming**: Use clear, descriptive names following existing patterns
+4. **Worker Support**: Update both `LocalWorker` and `RemoteWorker` to handle new phases
+5. **Combined Features**: Multiple features can share a single phase if they operate at the same stage (e.g., all bucket metadata operations in `PUT_S3_BUCKET_MD`)
+6. **Documentation**: Update relevant documentation and changelog when adding phases
+
+## Common Phase Patterns
+
+- **Metadata phases**: Often added in triplets (PUT/GET/DEL) around existing phases
+- **Stat phases**: Typically placed after creation to verify objects exist
+- **List phases**: Usually after creation, before or during read operations
+- **ACL phases**: Generally after creation or as separate operations
+- **Deletion phases**: Always at the end, often reversing the creation order

@@ -1,0 +1,178 @@
+Adding New Command-Line Parameters to Elbencho
+
+This guide explains how to add new command-line parameters to elbencho, using the `--s3sseckey` parameter as a practical example.
+
+## Overview
+Command-line parameters in elbencho are managed through the `ProgArgs` class, which uses Boost's program options library for parsing and validation. The process involves several steps across multiple files.
+
+## Step-by-Step Guide
+
+### 1. Define Parameter Constant
+In `source/ProgArgs.h`, add a constant for your parameter. This is what the user passes in the CLI, and the character limit is 16:
+```cpp
+#define ARG_YOUR_PARAM_LONG        "yourparam"
+```
+
+### 2. Add Member Variable
+In `source/ProgArgs.h`, add a member variable and getter method:
+```cpp
+class ProgArgs
+{
+    private:
+        std::string yourParam;  // Your parameter value
+    public:
+        std::string getYourParam() const { return yourParam; }
+};
+```
+
+### 3. Set Default Value
+In `source/ProgArgs.cpp`, add a default value in `defineDefaults()`:
+```cpp
+void ProgArgs::defineDefaults()
+{
+    this->yourParam = "";  // Set default value
+}
+```
+
+### 4. Define Command-Line Option
+In `source/ProgArgs.cpp`, add the parameter definition in `defineAllowedArgs()`:
+```cpp
+void ProgArgs::defineAllowedArgs()
+{
+    argsGenericDescription.add_options()
+        (ARG_YOUR_PARAM_LONG, bpo::value(&this->yourParam),
+            "Description of your parameter")
+}
+```
+
+### 5. Add Service Mode Support
+If your parameter needs to work in service mode, add to property tree methods in `source/ProgArgs.cpp`:
+```cpp
+void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
+{
+    yourParam = tree.get<std::string>(ARG_YOUR_PARAM_LONG);
+}
+
+void ProgArgs::@(bpt::ptree& outTree, size_t serviceRank) const
+{
+    outTree.put(ARG_YOUR_PARAM_LONG, yourParam);
+}
+```
+
+### 6. Add Bash Completion
+In `dist/etc/bash_completion.d/elbencho`, add your parameter:
+```bash
+_elbencho_opts()
+{
+    longopts="
+        --yourparam
+    "
+}
+```
+And if the new parameter needs to get a value, it should be added to the large `case` in the `_elbencho` function. 
+There are sections for parameters that get a string/file/hostname value.
+
+### 7. Update Documentation
+1. Add parameter to help text (done in Step 4)
+2. Update `CHANGELOG.md`:
+```markdown
+## vX.Y.Z (work in progress)
+
+### New Features & Enhancements
+* Added support for your new feature (enable by passing the `--yourparam` parameter)
+```
+
+### 8. Implement Parameter Logic
+Add the actual implementation that uses your parameter. For example:
+```cpp
+// In LocalWorker.h
+class LocalWorker : public Worker
+{
+    private:
+        std::string yourParamValue;  // Store processed parameter value
+};
+
+// In LocalWorker.cpp
+void LocalWorker::initYourFeature()
+{
+    yourParamValue = progArgs->getYourParam();
+    if (!yourParamValue.empty())
+    {
+        // Process the parameter value
+    }
+}
+```
+
+### 9. Add Parameter Validation (if needed)
+In `source/ProgArgs.cpp`, add validation in `checkArgs()`:
+```cpp
+void ProgArgs::checkArgs()
+{
+    if (!yourParam.empty() && /* some condition */)
+    {
+        throw ProgException("Invalid value for --yourparam: " + yourParam);
+    }
+}
+```
+
+## S3 Implementation Patterns
+
+### Clean Helper Function Approach for S3 Features
+When adding new S3 functionality that needs to be applied across multiple S3 operations, follow the existing pattern of functions like `s3ModeAddServerSideEncryption()` and `s3ModeAddChecksumAlgorithm()`.
+
+**Pattern:** Create inline helper functions that encapsulate all conditional logic internally.
+
+**Requirements:**
+
+1. **Request Modification Helpers:** Create `inline` functions that take S3 request objects and modify them
+   - Function internally checks if the feature is enabled via ProgArgs
+   - If enabled, applies the modification to the request
+   - If disabled, does nothing (no-op)
+   - Example: `inline void s3ModeAddOrigin(auto& request)`
+
+2. **Response Validation Helpers:** Create `inline` functions that validate S3 responses
+   - Function internally checks if validation is enabled via ProgArgs  
+   - If enabled, performs validation and updates statistics
+   - If disabled, does nothing (no-op)
+   - Example: `inline void s3ModeVerifyOrigin(const auto& outcome, const std::string& operation, const std::string& resource)`
+
+3. **Clean Integration:** Main S3 operation functions simply call helpers without conditional logic:
+   ```cpp
+   // In every S3 operation function:
+   S3::PutObjectRequest request;
+   // ... setup request ...
+   s3ModeAddServerSideEncryption(request);
+   s3ModeAddChecksumAlgorithm(request);
+   s3ModeAddOrigin(request);  // <- Clean addition
+   
+   S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+   
+   s3ModeVerifyOrigin(outcome, "PutObject", bucketName + "/" + objectName);  // <- Clean verification
+   ```
+
+**Benefits:**
+- Keeps conditional logic contained within helper functions
+- Maintains consistency with existing elbencho patterns  
+- Keeps main S3 operation functions clean and readable
+- Makes it easy to add functionality to all S3 operations with simple function calls
+
+## Best Practices
+1. **Naming**: Use consistent naming patterns (e.g., `ARG_*_LONG` for constants)
+2. **Documentation**: Always update help text and changelog
+3. **Default Values**: Set sensible defaults in `defineDefaults()`
+4. **Validation**: Add appropriate validation in `checkArgs()`
+5. **Service Mode**: Consider if your parameter needs to work in service mode
+6. **Bash Completion**: Add to completion script for better user experience
+
+## Real Example: The `--s3sseckey` Parameter
+The `--s3sseckey` parameter was implemented following these steps:
+1. Added `ARG_S3SSECKEY_LONG` constant
+2. Added `s3SSECKey` member variable and getter
+3. Set default value to empty string
+4. Added command-line option with description
+5. Added to service mode property tree methods
+6. Added to bash completion
+7. Updated changelog
+8. Implemented the actual SSE-C encryption logic in `LocalWorker.cpp`
+
+This tutorial provides a structured approach to adding new parameters to elbencho, ensuring consistency with the existing codebase. 

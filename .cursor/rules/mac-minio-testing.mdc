@@ -1,0 +1,223 @@
+Testing Elbencho with MinIO on macOS
+
+## Prerequisites
+
+- **Colima**: Must be running (`colima start`)
+- **MinIO Client (mc)**: `brew install minio/stable/mc`
+
+## Setup
+
+### 1. Start Colima
+```bash
+colima start
+```
+
+### 2. Start MinIO Container
+```bash
+docker run -d \
+  --name minio-test \
+  -p 9000:9000 \
+  -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  quay.io/minio/minio server /data --console-address ":9001"
+```
+
+### 3. Configure MinIO Client and Create Bucket
+```bash
+mc alias set local http://localhost:9000 minioadmin minioadmin
+mc mb local/testbucket
+```
+
+## Compilation
+
+```bash
+S3_SUPPORT=1 make -j$(nproc)
+```
+
+Binary location: `./bin/elbencho`
+
+## Running Tests
+
+### Basic Test with Operations Log
+
+The `--opslog` parameter creates a JSON log of all I/O operations (open, read, write, etc.), which is useful for verifying operations during development.
+
+```bash
+./bin/elbencho \
+  -w \
+  -s 1K \
+  -n 10 \
+  -t 1 \
+  --s3endpoints http://127.0.0.1:9000 \
+  --s3accesskey minioadmin \
+  --s3accesssecret minioadmin \
+  --opslog ops.log \
+  s3://testbucket
+```
+
+### Validating Operations Using the Log
+
+After running a test with `--opslog ops.log`, verify operations by grepping the log:
+
+```bash
+# View all operations
+cat ops.log
+
+# Count total operations
+wc -l ops.log
+
+# View specific operation types
+grep '"op":"S3PutObject"' ops.log
+grep '"op":"S3CreateMultipartUpload"' ops.log
+grep '"op":"S3AbortMultipartUpload"' ops.log
+
+# Check for errors (non-zero error codes)
+grep '"error":[1-9]' ops.log
+
+# View first/last operations
+head -n 5 ops.log
+tail -n 5 ops.log
+
+# Pretty print JSON for detailed inspection
+cat ops.log | jq '.'
+```
+
+The operations log provides the quickest way to verify that your code is calling the expected S3 operations in the correct order.
+
+### Validating Operations Using MinIO Client
+
+After verifying operations via the log, you can also check the actual S3 state:
+
+```bash
+# List objects
+mc ls local/testbucket
+
+# Get object details
+mc stat local/testbucket/rank0-thread0-file0
+
+# View bucket tags
+mc tag list local/testbucket
+
+# List incomplete MPUs
+mc ls --incomplete local/testbucket
+```
+
+### Clean Up Between Tests
+
+```bash
+# Remove all objects
+mc rm --recursive --force local/testbucket
+
+# Remove incomplete MPUs
+mc rm --incomplete --recursive --force local/testbucket
+```
+
+## Common Test Scenarios
+
+### Test Multipart Uploads
+```bash
+./bin/elbencho \
+  -w \
+  -s 100M \
+  -n 5 \
+  -t 1 \
+  --s3endpoints http://127.0.0.1:9000 \
+  --s3accesskey minioadmin \
+  --s3accesssecret minioadmin \
+  --s3mpuploadsize 5M \
+  --opslog ops.log \
+  s3://testbucket
+
+# Verify MPU operations in log
+grep '"op":"S3CreateMultipartUpload"' ops.log
+grep '"op":"S3UploadPart"' ops.log
+grep '"op":"S3CompleteMultipartUpload"' ops.log
+```
+
+### Test Abort MPU Phase
+```bash
+# Create incomplete MPUs by interrupting upload
+./bin/elbencho \
+  -w \
+  -s 100M \
+  -n 5 \
+  -t 1 \
+  --s3endpoints http://127.0.0.1:9000 \
+  --s3accesskey minioadmin \
+  --s3accesssecret minioadmin \
+  --s3mpuploadsize 5M \
+  s3://testbucket &
+
+sleep 2 && pkill -9 elbencho
+
+# Verify incomplete MPUs exist
+mc ls --incomplete local/testbucket
+
+# Abort them using the new phase
+./bin/elbencho \
+  --s3endpoints http://127.0.0.1:9000 \
+  --s3accesskey minioadmin \
+  --s3accesssecret minioadmin \
+  --s3abortmpu \
+  --opslog ops.log \
+  s3://testbucket
+
+# Verify abort operations in log
+grep '"op":"S3ListMultipartUploads"' ops.log
+grep '"op":"S3AbortMultipartUpload"' ops.log
+
+# Verify no incomplete MPUs remain
+mc ls --incomplete local/testbucket
+```
+
+### Test Metadata Operations
+```bash
+./bin/elbencho \
+  -w -r \
+  -s 1K \
+  -n 10 \
+  -t 1 \
+  --s3endpoints http://127.0.0.1:9000 \
+  --s3accesskey minioadmin \
+  --s3accesssecret minioadmin \
+  --s3putmd \
+  --s3getmd \
+  --opslog ops.log \
+  s3://testbucket
+
+# Verify metadata operations
+grep '"op":".*Metadata"' ops.log
+```
+
+## Development Workflow
+
+1. **Compile**: `S3_SUPPORT=1 make -j$(nproc)`
+2. **Run test with opslog**: Add `--opslog ops.log` to test command
+3. **Verify operations**: `grep` the ops.log for expected operations
+4. **Check S3 state** (optional): Use `mc` commands to verify
+5. **Clean up**: `mc rm --recursive --force local/testbucket`
+
+## MinIO Web Console
+
+For visual inspection: http://localhost:9001 (login: minioadmin/minioadmin)
+
+## Known MinIO Limitations
+
+### ListMultipartUploads Prefix Parameter Not Supported
+
+MinIO does **not** support the `prefix` parameter when calling the S3 `ListMultipartUploads` API. This means:
+
+- The `--s3abortmpu` phase with multiple threads (`-t > 1`) cannot be properly tested with MinIO
+- MinIO will always return **all** incomplete multipart uploads in the bucket, regardless of the prefix parameter
+- This can cause multiple threads to try to abort the same uploads when testing with `-t > 1`
+
+**Impact on Testing:**
+- Single-threaded abort MPU tests (`-t 1`) will work correctly with MinIO
+- Multi-threaded abort MPU tests must be validated against real S3 or S3-compatible services that support the prefix parameter (e.g., AWS S3, Ceph RGW, VAST)
+
+**Workaround for Development:**
+When testing the abort MPU phase with MinIO, use single thread only:
+```bash
+./bin/elbencho -t 1 --s3endpoints=http://127.0.0.1:9000 --s3key=admin --s3secret=adminadmin --s3abortmpu testbucket
+```
