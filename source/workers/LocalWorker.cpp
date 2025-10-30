@@ -4997,8 +4997,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         }
 
         auto outcome = listOutcome.GetResult();
-        std::cout << "Uploads size: " << outcome.GetUploads().size() << " For prefix " << outcome.GetPrefix() << std::endl;
-
         // We expect exactly 1 multipart upload because the prefix contains the worker rank,
         // making it specific enough to match only the current upload
         IF_UNLIKELY(outcome.GetUploads().size() != 1) {
