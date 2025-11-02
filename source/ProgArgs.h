@@ -185,6 +185,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_S3LISTMPU_LONG          "s3listmpu"
 #define ARG_S3LISTPARTS_LONG        "s3listparts"
+#define ARG_S3ABORTMPU_LONG         "s3abortmpu"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -382,6 +383,7 @@ class ProgArgs
         bool doS3ObjectLockCfgVerify; // do S3 object lock configuration verification
         bool doS3ListMPU; // enable list multipart uploads requests
         bool doS3ListParts; // enable list parts requests
+        bool doS3AbortMPU; // enable abort multipart uploads phase
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -650,6 +652,8 @@ class ProgArgs
 		bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoS3ListMPU() const { return doS3ListMPU; }
         bool getDoS3ListParts() const { return doS3ListParts; }
+        bool getDoS3AbortMPU() const { return doS3AbortMPU; }
+        bool getRunAbortMPUPhase() const { return doS3AbortMPU; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }
         bool getDoListObjVerify() const { return doS3ListObjVerify; }

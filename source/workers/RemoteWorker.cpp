@@ -76,6 +76,7 @@ void RemoteWorker::run()
 				case BenchPhase_MULTIDELOBJ:
                 case BenchPhase_GET_S3_OBJECT_MD:
                 case BenchPhase_PUT_S3_OBJECT_MD:
+                case BenchPhase_ABORT_MPU:
                 case BenchPhase_DEL_S3_OBJECT_MD:
                 case BenchPhase_GET_S3_BUCKET_MD:
                 case BenchPhase_PUT_S3_BUCKET_MD:

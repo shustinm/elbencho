@@ -273,6 +273,11 @@ void LocalWorker::run()
                             s3ModeIterateObjects() : s3ModeIterateCustomObjects();
                     } break;
 
+                    case BenchPhase_ABORT_MPU:
+                    {
+                        s3ModeAbortMultipartUploads();
+                    } break;
+
 					case BenchPhase_STATFILES:
 					{
 						if(progArgs->getBenchPathType() != BenchPathType_DIR)
@@ -5881,6 +5886,117 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 			"Object: " << objectName << "; "
 			"UploadID: " << uploadID << "; " << std::endl);
 	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Abort all incomplete multipart uploads for all buckets and the configured prefix.
+ * This is called as a benchmark phase to clean up incomplete MPUs.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeAbortMultipartUploads()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+
+	workerGotPhaseWork = false; // not all workers might get work
+
+	// Walk over each unique dir per worker
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		checkInterruptionRequest();
+
+		// Build objectPrefix for current dir (following pattern from s3ModeIterateObjects)
+		std::string objectPrefix;
+
+		if(objectPrefixRand)
+			objectPrefix = getS3RandObjectPrefix(
+				workerRank, dirIndex, 0, progArgs->getS3ObjectPrefix() );
+		else if(haveSubdirs)
+		{
+			// add subdir to objectPrefix
+			char subdirBuf[PATH_BUF_LEN];
+			int printRes = snprintf(subdirBuf, PATH_BUF_LEN, "r%zu/d%zu/",
+				workerDirRank, dirIndex);
+
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("object path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) + "; "
+					"dirIndex: " + std::to_string(dirIndex) );
+
+			objectPrefix = progArgs->getS3ObjectPrefix() + std::string(subdirBuf);
+		}
+		else
+			objectPrefix = progArgs->getS3ObjectPrefix();
+
+		unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
+		const auto& bucketName = bucketVec[bucketIndex];
+
+		workerGotPhaseWork = true;
+
+		// List all incomplete multipart uploads for this worker's dir prefix
+		S3::ListMultipartUploadsRequest listRequest;
+		listRequest.WithBucket(bucketName).WithPrefix(objectPrefix);
+
+		OPLOG_PRE_OP("S3ListMultipartUploads", bucketName + "/" + objectPrefix, 0, 0);
+
+		auto listOutcome = s3Client->ListMultipartUploads(listRequest);
+
+		OPLOG_POST_OP("S3ListMultipartUploads", bucketName + "/" + objectPrefix, 0, 0,
+			!listOutcome.IsSuccess());
+
+		s3ModeThrowOnError(listOutcome, "Multipart upload listing failed.", bucketName);
+
+		const auto& uploads = listOutcome.GetResult().GetUploads();
+
+		// Abort each incomplete multipart upload
+		for(const auto& upload : uploads)
+		{
+			checkInterruptionRequest();
+
+			const std::string& objectKey = upload.GetKey();
+			const std::string& uploadId = upload.GetUploadId();
+
+			S3::AbortMultipartUploadRequest abortRequest;
+			abortRequest.SetBucket(bucketName);
+			abortRequest.SetKey(objectKey);
+			abortRequest.SetUploadId(uploadId);
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			OPLOG_PRE_OP("S3AbortMultipartUpload", bucketName + "/" + objectKey, 0, 0);
+
+			auto abortOutcome = s3Client->AbortMultipartUpload(abortRequest);
+
+			OPLOG_POST_OP("S3AbortMultipartUpload", bucketName + "/" + objectKey, 0, 0,
+				!abortOutcome.IsSuccess());
+
+			if (!ignoreS3Errors)
+				s3ModeThrowOnError(abortOutcome, "Failed to abort multipart upload.",
+					bucketName, objectKey);
+
+			// calc io operation latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>(ioEndT - ioStartT);
+
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count());
+
+			atomicLiveOps.numEntriesDone++;
+		}
+	} // end of dirs for-loop
 
 #endif // S3_SUPPORT
 }

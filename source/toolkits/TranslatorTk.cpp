@@ -81,6 +81,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
         case BenchPhase_GET_S3_OBJECT_MD: return PHASENAME_GETOBJECTMETADATA;
         case BenchPhase_PUT_S3_OBJECT_MD: return PHASENAME_PUTOBJECTMETADATA;
+        case BenchPhase_ABORT_MPU: return PHASENAME_ABORT_MPU;
         case BenchPhase_DEL_S3_OBJECT_MD: return PHASENAME_DELOBJECTMETADATA;
         case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GETBUCKETMETADATA;
         case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUTBUCKETMETADATA;
@@ -133,6 +134,7 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_MULTIDELOBJ:
         case BenchPhase_GET_S3_OBJECT_MD:
         case BenchPhase_PUT_S3_OBJECT_MD:
+        case BenchPhase_ABORT_MPU:
         case BenchPhase_DEL_S3_OBJECT_MD:
         {
             retVal = progArgs->getS3EndpointsVec().empty() ?

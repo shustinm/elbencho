@@ -64,6 +64,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_GETBUCKETMETADATA     "GETBUCKETMD"
 #define PHASENAME_PUTBUCKETMETADATA     "PUTBUCKETMD"
 #define PHASENAME_DELBUCKETMETADATA     "DELBUCKETMD"
+#define PHASENAME_ABORT_MPU             "ABORTMPU"
 
 
 // human-readable entry type in current benchmark phase
@@ -147,6 +148,7 @@ enum BenchPhase
 	BenchPhase_GETBUCKETACL,
     BenchPhase_GET_S3_OBJECT_MD,
     BenchPhase_PUT_S3_OBJECT_MD,
+    BenchPhase_ABORT_MPU,
     BenchPhase_DEL_S3_OBJECT_MD,
     BenchPhase_GET_S3_BUCKET_MD,
     BenchPhase_PUT_S3_BUCKET_MD,

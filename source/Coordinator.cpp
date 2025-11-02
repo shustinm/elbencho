@@ -300,6 +300,7 @@ void Coordinator::runBenchmarks()
 		BenchPhaseConfig { BenchPhase_STATDIRS, progArgs.getRunS3StatDirs() },
         BenchPhaseConfig { BenchPhase_GET_S3_BUCKET_MD, progArgs.getRunS3GetBucketMetadata() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
+        BenchPhaseConfig { BenchPhase_ABORT_MPU, progArgs.getRunAbortMPUPhase() },
         BenchPhaseConfig { BenchPhase_PUTOBJACL, progArgs.getRunS3AclPut() },
         BenchPhaseConfig { BenchPhase_PUT_S3_OBJECT_MD, progArgs.getRunS3PutObjectMetadata() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
