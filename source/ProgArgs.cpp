@@ -556,7 +556,11 @@ void ProgArgs::defineAllowedArgs()
 			"Enable list multipart uploads requests during multipart "
 			"uploads. (Off by default)")
 		(ARG_S3LISTPARTS_LONG, bpo::bool_switch(&this->doS3ListParts),
-			"Enable list parts requests during multipart uploads. (Off by default)")
+			"Enable list parts requests during multipart "
+			"uploads. (Off by default)")
+		(ARG_S3ABORTMPU_LONG, bpo::bool_switch(&this->doS3AbortMPU),
+			"Run a benchmark phase to abort all incomplete multipart uploads. "
+			"This phase runs after file creation. (Off by default)")
 /*s3b*/	(ARG_S3BUCKETVERVERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
             "Verify the correctness of S3 bucket versioning settings. (Requires "
             "\"--" ARG_S3BUCKETVER_LONG "\")")
@@ -904,6 +908,7 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectTagVerify = false;
     this->doS3ListMPU = false;
     this->doS3ListParts = false;
+    this->doS3AbortMPU = false;
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
@@ -3600,6 +3605,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
     outTree.put(ARG_S3LISTMPU_LONG, doS3ListMPU);
     outTree.put(ARG_S3LISTPARTS_LONG, doS3ListParts);
+    outTree.put(ARG_S3ABORTMPU_LONG, doS3AbortMPU);
     outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);

@@ -5,6 +5,7 @@
 ### New Features & Enhancements
 * Added support for list parts requests at the end of multipart uploads (enable by passing the `--s3listparts` parameter).
 * Added support for list multipart uploads requests at the end of multipart uploads (enable by passing the `--s3listmpu` parameter).
+* Added a benchmark phase to abort incomplete multipart uploads. This phase lists and aborts all MPUs for the configured prefix and runs after file creation (enable by passing the `--s3abortmpu` parameter). The abort phase now properly parallelizes across multiple threads, with each thread listing and aborting only its own directory prefixes.
 
 ### General Changes
 * Added config values to `--jsonfile` output.

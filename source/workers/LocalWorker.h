@@ -248,6 +248,7 @@ class LocalWorker : public Worker
 		void s3ModeDeleteBucketTagging(const std::string& bucketName);
 		void s3ModeGetBucketTagging(const std::string& bucketName);
 		void s3ModeDeleteBucket(const std::string& bucketName);
+		void s3ModeAbortMultipartUploads();
 		void s3ModePutBucketAcl(std::string bucketName);
 		void s3ModeGetBucketAcl(std::string bucketName);
         void s3ModeGetBucketVersioning(const std::string& bucketName);
