@@ -29,3 +29,6 @@ compile_commands.json
 excluded/
 todo.txt
 .cache/
+
+# Misc (Mac)
+.DS_Store

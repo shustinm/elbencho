@@ -115,6 +115,7 @@ _elbencho_opts()
         --rwmixpct
         --rwmixthr
         --rwmixthrpct
+        --s3abortmpu
         --s3aclget
         --s3aclgrantee
         --s3aclgrants
@@ -129,15 +130,15 @@ _elbencho_opts()
         --s3bversion
         --s3bversionverify
         --s3chksumalgo
-        --s3listmpu
-        --s3listparts
-        --s3abortmpu
+        --s3corsorigin
         --s3endpoints
         --s3fastget
         --s3fastput
         --s3key
+        --s3listmpu
         --s3listobj
         --s3listobjpar
+        --s3listparts
         --s3listverify
         --s3log
         --s3logprefix
@@ -275,6 +276,8 @@ _elbencho()
         --s3aclgtype)
         ;&
         --s3chksumalgo)
+        ;&
+        --s3corsorigin)
         ;&
         --s3endpoints)
         ;&

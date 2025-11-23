@@ -140,6 +140,7 @@ namespace bpt = boost::property_tree;
 #define ARG_RWMIXTHREADSPCT_LONG    "rwmixthrpct"
 #define ARG_S3ACCESSKEY_LONG		"s3key"
 #define ARG_S3ACCESSSECRET_LONG		"s3secret"
+#define ARG_S3ABORTMPU_LONG         "s3abortmpu"
 #define ARG_S3ACLGET_LONG			"s3aclget"
 #define ARG_S3ACLGRANTEE_LONG		"s3aclgrantee"
 #define ARG_S3ACLGRANTEETYPE_LONG	"s3aclgtype"
@@ -153,12 +154,15 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
+#define ARG_S3CORSORIGIN_LONG       "s3corsorigin"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3FASTPUT_LONG          "s3fastput"
 #define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
+#define ARG_S3LISTMPU_LONG          "s3listmpu"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
+#define ARG_S3LISTPARTS_LONG        "s3listparts"
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
@@ -183,9 +187,6 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ERRORHEADERS_LONG     "s3errheaders"
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
-#define ARG_S3LISTMPU_LONG          "s3listmpu"
-#define ARG_S3LISTPARTS_LONG        "s3listparts"
-#define ARG_S3ABORTMPU_LONG         "s3abortmpu"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -495,6 +496,7 @@ class ProgArgs
 			"2=never" is ignored, because as of aws sdk cpp v1.11.486 signing is always done. */
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
+        std::string s3CorsOrigin;  // S3 CORS Origin header for testing
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -755,6 +757,8 @@ class ProgArgs
         unsigned short getS3SignPolicy() const { return s3SignPolicy; }
         std::string getS3SSECKey() const { return s3SSECKey; }
         std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
+        const std::string& getS3CorsOrigin() const { return s3CorsOrigin; }
+        bool getDoS3CorsTest() const { return !s3CorsOrigin.empty(); }
         unsigned short getServicePort() const { return servicePort; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
