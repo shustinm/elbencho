@@ -104,11 +104,35 @@ endif
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
 CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
-LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
-	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC) \
 
   ifeq ($(S3_AWSCRT), 1)
     CXXFLAGS += -DS3_AWSCRT
+    # For dynamic linking with AWS CRT, link specific shared libraries
+    ifeq ($(BUILD_STATIC), 1)
+      LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
+        $(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
+    else
+      # Link all AWS CRT libraries in dependency order
+      LDFLAGS  += -L $(AWS_LIB_DIR) \
+        -l aws-cpp-sdk-s3-crt \
+        -l aws-cpp-sdk-core \
+        -l aws-crt-cpp \
+        -l aws-c-s3 \
+        -l aws-c-auth \
+        -l aws-c-http \
+        -l aws-c-mqtt \
+        -l aws-c-event-stream \
+        -l aws-c-io \
+        -l aws-c-cal \
+        -l aws-c-compression \
+        -l aws-c-sdkutils \
+        -l aws-checksums \
+        -l aws-c-common \
+        $(LDFLAGS_S3_DYNAMIC)
+    endif
+  else
+    LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
+      $(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
   endif
 
   # Apply user-provided AWS SDK include dir if given
@@ -119,7 +143,6 @@ LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
   endif
 
 endif
-
 # Use Microsoft mimalloc for memory allocations.
 # Note: This needs to come as very last in link order, thus we have a separate variable to ensure
 # it's the trailing arg for the linker. (Can be confirmed e.g. via MIMALLOC_SHOW_STATS=1)
@@ -296,9 +319,12 @@ ifdef BUILD_VERBOSE
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
+
+    ifeq ($(BUILD_STATIC), 1)
 	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
 		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
+    endif
 endif
 
 features-info:
