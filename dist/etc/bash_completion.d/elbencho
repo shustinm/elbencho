@@ -131,6 +131,8 @@ _elbencho_opts()
         --s3bversionverify
         --s3chksumalgo
         --s3corsorigin
+        --s3credfile
+        --s3credlist
         --s3endpoints
         --s3fastget
         --s3fastput
@@ -279,6 +281,8 @@ _elbencho()
         ;&
         --s3corsorigin)
         ;&
+        --s3credlist)
+        ;&
         --s3endpoints)
         ;&
         --s3key)
@@ -351,6 +355,8 @@ _elbencho()
         --serversfile)
         ;&
         --svcpwfile)
+        ;&
+        --s3credfile)
         ;&
         --treefile)
         ;&

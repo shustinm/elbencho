@@ -86,7 +86,7 @@ ifeq ($(BUILD_STATIC), 1)
   ifeq ($(S3_AWSCRT), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
-    LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
+    LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l nghttp3 -l brotlidec \
       -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
   endif
 
@@ -402,6 +402,7 @@ install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-scan-path $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-summarize-json $(INST_PATH)/
 
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
 		/etc/bash_completion.d/$(EXE_NAME)
@@ -423,6 +424,7 @@ uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 	rm -f $(INST_PATH)/$(EXE_NAME)-chart
 	rm -f $(INST_PATH)/$(EXE_NAME)-scan-path
+	rm -f $(INST_PATH)/$(EXE_NAME)-summarize-json
 	rm -f $(INST_PATH)/mtelbencho.sh
 	rm -f $(INST_PATH)/graph_sweep.sh
 	rm -f /etc/bash_completion.d/$(EXE_NAME)
