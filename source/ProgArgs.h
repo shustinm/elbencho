@@ -161,6 +161,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3CREDFILE_LONG         "s3credfile"
 #define ARG_S3CREDLIST_LONG         "s3credlist"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
+#define ARG_S3EXPECTCONTLEN_LONG	"s3expectlen"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3FASTPUT_LONG          "s3fastput"
 #define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
@@ -495,8 +496,9 @@ class ProgArgs
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
-		std::string s3ErrorHeadersStr; // user-given comma-separated list of HTTP headers for errors
-		StringVec s3ErrorHeadersVec; // s3ErrorHeadersStr broken down into individual header names
+        std::string s3ErrorHeadersStr; // user-given comma-separated list of HTTP headers for errors
+        StringVec s3ErrorHeadersVec; // s3ErrorHeadersStr broken down into individual header names
+        int64_t s3ExpectContentLength; // expected content length for S3 responses (-1 disables check)
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
@@ -771,6 +773,7 @@ class ProgArgs
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
         std::string getS3ErrorHeadersStr() const { return s3ErrorHeadersStr; }
         const StringVec& getS3ErrorHeadersVec() const { return s3ErrorHeadersVec; }
+        int64_t getS3ExpectContentLength() const { return s3ExpectContentLength; }
         bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }

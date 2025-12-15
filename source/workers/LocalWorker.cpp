@@ -4378,6 +4378,49 @@ void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
 #endif // S3_SUPPORT
 }
 
+/**
+ * Verify that S3 GetObject response has the expected content length.
+ * This is a no-op if s3ExpectContentLength is -1 (disabled).
+ * 
+ * Note: This only works with GetObject operations that return GetObjectResult with GetContentLength().
+ * PutObject and UploadPart results do not have content length in their responses.
+ * 
+ * @param outcome the S3 GetObject operation outcome to verify
+ * @param operation name of the S3 operation (should be "GetObject")
+ * @param bucketName the S3 bucket name
+ * @param objectName the S3 object name
+ * @throw WorkerException if content length doesn't match expected value.
+ */
+template <typename OUTCOMETYPE>
+inline void LocalWorker::s3ModeVerifyContentLength(const OUTCOMETYPE& outcome, 
+	const std::string& operation, const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+	const int64_t expectedLength = progArgs->getS3ExpectContentLength();
+	
+	// -1 means disabled
+	if (expectedLength < 0)
+		return;
+	
+	const auto& result = outcome.GetResult();
+	const int64_t actualLength = result.GetContentLength();
+	
+	IF_UNLIKELY(actualLength != expectedLength)
+	{
+		throw WorkerException(std::string("S3 content length mismatch. ") +
+			"Operation: " + operation + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Expected: " + std::to_string(expectedLength) + "; "
+			"Actual: " + std::to_string(actualLength));
+	}
+
+#endif // S3_SUPPORT
+}
+
 template <typename REQUESTTYPE>
 void LocalWorker::s3ModeAddCorsHeader(REQUESTTYPE& request)
 {
@@ -6264,19 +6307,9 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
             s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
-        auto &result = outcome.GetResult();
+		s3ModeVerifyContentLength(outcome, "GetObject", bucketName, objectName);
 
-		IF_UNLIKELY( ( (size_t)result.GetContentLength() < blockSize) &&
-            !ignoreS3Errors)
-		{
-            throw WorkerException(std::string("Object too small. ") +
-                "Endpoint: " + s3EndpointStr + "; "
-                "Bucket: " + bucketName + "; "
-                "Object: " + objectName + "; "
-                "Offset: " + std::to_string(currentOffset) + "; "
-                "Requested blocksize: " + std::to_string(blockSize) + "; "
-                "Received length: " + std::to_string(result.GetContentLength()));
-		}
+        auto &result = outcome.GetResult();
 
         try 
         {
@@ -6467,6 +6500,8 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
 
                 IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
                     s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
+
+                s3ModeVerifyContentLength(outcome, "GetObjectAsync", bucketName, objectName);
 
                 IF_UNLIKELY(
                     ( (size_t)outcome.GetResult().GetContentLength() <

@@ -134,6 +134,7 @@ _elbencho_opts()
         --s3credfile
         --s3credlist
         --s3endpoints
+        --s3expectlen
         --s3fastget
         --s3fastput
         --s3key
@@ -284,6 +285,8 @@ _elbencho()
         --s3credlist)
         ;&
         --s3endpoints)
+        ;&
+        --s3expectlen)
         ;&
         --s3key)
         ;&

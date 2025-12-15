@@ -259,8 +259,11 @@ class LocalWorker : public Worker
         template <typename REQUESTTYPE>
         void s3ModeAddCorsHeader(REQUESTTYPE& request);
         template <typename REQUESTTYPE>
-			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
-		void s3ModeCreateBucket(std::string bucketName);
+		inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
+	template <typename OUTCOMETYPE>
+		inline void s3ModeVerifyContentLength(const OUTCOMETYPE& outcome, const std::string& operation,
+			const std::string& bucketName, const std::string& objectName);
+	void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);
 		void s3ModeDeleteBucketTagging(const std::string& bucketName);

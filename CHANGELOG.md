@@ -11,6 +11,8 @@
 * Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`.)
 * Added support for multiple S3 credentials. (See `--s3credfile` & `--s3credlist`.)
 * Added option to use a single shared S3 client instance instead of separate instances for each worker thread. (See `--s3single`.)
+* Added support for verifying expected S3 content length in GetObject responses (enable by passing the `--s3expectlen` parameter). This is useful for RDMA endpoints that may return different content length values.
+
 ### General Changes
 * Added config values to `--jsonfile` output.
 * Removed dependency on lib boost_system for compatibility with more recent boost versions.

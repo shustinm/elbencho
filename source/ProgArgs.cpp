@@ -582,9 +582,14 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
 			"\"--" ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
 /*s3e*/	(ARG_S3ERRORHEADERS_LONG, bpo::value(&this->s3ErrorHeadersStr),
-			"Comma-separated list of HTTP response headers to print in S3 error messages. "
-			"This helps debug issues by showing specific headers from failed requests. "
-			"Example: \"x-amz-request-id,x-amz-id-2,content-type\"")
+		"Comma-separated list of HTTP response headers to print in S3 error messages. "
+		"This helps debug issues by showing specific headers from failed requests. "
+		"Example: \"x-amz-request-id,x-amz-id-2,content-type\"")
+/*s3e*/	(ARG_S3EXPECTCONTLEN_LONG, bpo::value(&this->s3ExpectContentLength),
+		"Expected content length in bytes for S3 GetObject response verification. When set, "
+		"GetObject responses will be verified to have exactly this content length. "
+		"Use 0 for RDMA endpoints that return 0-byte content length. "
+		"Default is -1 (disabled).")
 /*s3f*/	(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
@@ -872,6 +877,7 @@ void ProgArgs::defineDefaults()
 	this->doInfiniteIOLoop = false;
     this->s3SessionToken = "";
 	this->s3ErrorHeadersStr = "";
+	this->s3ExpectContentLength = -1; // -1 means disabled
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
 	this->numRWMixReadThreads = 0;
@@ -3496,6 +3502,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3ErrorHeadersStr = tree.get<std::string>(ARG_S3ERRORHEADERS_LONG);
+	s3ExpectContentLength = tree.get<int64_t>(ARG_S3EXPECTCONTLEN_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
@@ -3649,6 +3656,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3ERRORHEADERS_LONG, s3ErrorHeadersStr);
+	outTree.put(ARG_S3EXPECTCONTLEN_LONG, s3ExpectContentLength);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
