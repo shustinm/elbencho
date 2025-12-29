@@ -32,3 +32,10 @@ todo.txt
 
 # Misc (Mac)
 .DS_Store
+
+# Reuse
+.reuse/
+
+# Visual Studio Code
+.vscode/
+.clang-format

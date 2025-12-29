@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
 #include <fstream>
@@ -64,6 +67,10 @@
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
 #define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
 #define S3_ENV_SESSION_TOKEN        "AWS_SESSION_TOKEN" // environment variable for s3 session token
+
+// Names of features for printVersionAndBuildInfo()
+#define FEATURE_NAME_S3_SUPPORT     "s3"
+#define FEATURE_NAME_S3_AWSCRT      "s3crt"
 
 
 /**
@@ -142,6 +149,8 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 ProgArgs::~ProgArgs()
 {
+    // note: no s3ClientSingleton.reset() here because this destructor is after S3 global uninit
+
 	for(int fd : benchPathFDsVec)
 		close(fd);
 
@@ -571,6 +580,11 @@ void ProgArgs::defineAllowedArgs()
             "S3 CORS origin header value. When provided, elbencho will add the '" REQUEST_ORIGIN_HEADER 
             "' header to S3 requests and validate the '" RESPONSE_ORIGIN_HEADER "' response header.")
 
+/*s3c*/	(ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+			"Path to file containing multiple S3 credentials. Each line in format: "
+			"access_key:secret_key. Lines starting with # are treated as comments.")
+/*s3c*/	(ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+			"Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -609,6 +623,24 @@ void ProgArgs::defineAllowedArgs()
 			"Path and filename prefix of AWS S3 SDK log file. \"DATE.log\" will get appended to "
 			"the given filename. "
 			"(Default: \"" AWS_SDK_LOGPREFIX_DEFAULT "\" in current working directory)")
+/*s3m*/	(ARG_S3MAXCONNS_LONG, bpo::value(&this->s3MaxConnections),
+            "Max number of connections per S3 client instance. "
+            "(Default: Number of threads sharing the instance times iodepth.) "
+            "[Not effective for builds with feature " FEATURE_NAME_S3_AWSCRT ".]")
+/*s3m*/ (ARG_S3MPUSIZEVAR_LONG, bpo::value(&this->s3MpuSizeVarianceOrigStr),
+            "Maximum number of bytes to subtract from part size of multipart uploads for random "
+            "variance in part sizes. The last uploaded part will be correspondingly larger to "
+            "meet the full given object size. This only works for plain sequential uploads in "
+            "objects-per-thread mode, i.e. in combination with \"-" ARG_NUMFILES_SHORT "\".")
+/*s3m*/	(ARG_S3MPUSPLITSIZE_LONG, bpo::value(&this->s3MpuSplitSizeOrigStr),
+            "Normally, S3 MPU part size is defined via the \"-" ARG_BLOCK_SHORT "\" "
+            "parameter and " EXE_NAME " takes care of submitting the individual parts. When "
+            "this option is used, then the AWS S3 client object internally takes care of the "
+            "splitting and submission of the individual parts based on the given split size. "
+            "For this, \"-" ARG_BLOCK_SHORT "\" has to be set to the full object size, but this "
+            "also means each thread needs to allocate the full object size in memory. "
+            "(Default: 0=disabled) [Only effective for builds with feature "
+            FEATURE_NAME_S3_AWSCRT ".]")
 /*s3m*/	(ARG_S3MULTIDELETE_LONG, bpo::value(&this->runS3MultiDelObjNum),
 			"Delete multiple objects in a single DeleteObjects request. This loops on retrieving "
 			"a chunk of objects from a listing request and then deleting the retrieved set of "
@@ -660,12 +692,26 @@ void ProgArgs::defineAllowedArgs()
 /*s3s*/	(ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
              "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN
 			 " env variable.)")
+/*s3s*/	(ARG_S3CLIENTSINGLETON_LONG, bpo::bool_switch(&this->useS3ClientSingleton),
+            "Use a single shared S3 client instance for all threads instead of one S3 client "
+            "instance per thread. This is recommended when using the AWS S3 CRT libraries. "
+            "With this option, giving multiple S3 endpoints will not be effective. "
+            "(Hint: See \"--" ARG_VERSION_LONG "\" output to check if this build is using the AWS "
+            "S3 CRT libraries.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Changing this to "
 			"'Never' has no effect with current S3 SDK as described in Github issue 3297. "
 			"(Default: 0)")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
             "Run bucket attributes query phase.")
+/*s3m*/	(ARG_S3TROUGHPUTTARGET_LONG, bpo::value(&this->s3ThroughputTargetGbps),
+            "The throughput target for each S3 client instance in Gbps (gigabits per second) "
+            "based on which the client internally calculates the maximum number of "
+            "connections. (Default: 100) [Only effective for builds with feature "
+            FEATURE_NAME_S3_AWSCRT ".]")
+/*s3v*/	(ARG_S3VIRTADDRESSING_LONG, bpo::bool_switch(&this->useS3VirtualAddressing),
+            "Use S3 virtual addressing, where the bucket name gets prepended as subdomain of "
+            "the S3 server DNS name.")
 #endif // S3_SUPPORT
 /*se*/	(ARG_SENDBUFSIZE_LONG, bpo::value(&this->sockSendBufSizeOrigStr),
 			"In netbench mode, this sets the send buffer size of sockets in bytes. "
@@ -892,8 +938,10 @@ void ProgArgs::defineDefaults()
 	this->runS3MultiDelObjNum = 0;
     this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
+    this->useS3ClientSingleton = false;
 	this->useS3ObjectPrefixRand = false;
     this->useS3SSE = false;
+    this->useS3VirtualAddressing = false;
 	this->doReadInline = false;
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
@@ -916,12 +964,20 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
+    this->s3MaxConnections = 0;
+	this->s3MpuSizeVariance = 0;
+    this->s3MpuSizeVarianceOrigStr = "0";
+    this->s3MpuSplitSize = 0;
+    this->s3MpuSplitSizeOrigStr = "0";
 	this->s3NoCompression = false;
 	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
     this->s3CorsOrigin = "";  // Default to empty string (CORS testing disabled)
+	this->s3CredentialsFile = "";
+	this->s3CredentialsList = "";
+    this->s3ThroughputTargetGbps = 100;
 }
 
 /**
@@ -1062,6 +1118,8 @@ void ProgArgs::convertUnitStrings()
 	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
 	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
 	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
+    s3MpuSizeVariance = UnitTk::numHumanToBytesBinary(s3MpuSizeVarianceOrigStr, false);
+    s3MpuSplitSize = UnitTk::numHumanToBytesBinary(s3MpuSplitSizeOrigStr, false);
 	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
 	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
 
@@ -1292,6 +1350,16 @@ void ProgArgs::checkArgs()
     ///////////// if we get here, we are running in local standalone mode...
 
     checkPathDependentArgs();
+
+    // Check that only one credential source is specified
+    if(!s3CredentialsFile.empty() && !s3CredentialsList.empty())
+        throw ProgException("Only one of --" ARG_S3CREDFILE_LONG " or --"
+            ARG_S3CREDLIST_LONG " may be specified.");
+
+    // If using multi-credentials, s3AccessKey and s3AccessSecret must be empty
+    if((!s3CredentialsFile.empty() || !s3CredentialsList.empty()) &&
+        (!s3AccessKey.empty() || !s3AccessSecret.empty()))
+        throw ProgException("Cannot specify both multi-credentials and single credential options.");
 }
 
 /**
@@ -1337,6 +1405,10 @@ void ProgArgs::checkPathDependentArgs()
 		s3EndpointsVec.empty() )
 		throw ProgException("Putting/getting bucket or object ACLs requires S3 endpoints "
 			"definition.");
+
+	if(!s3EndpointsVec.empty() && s3MpuSizeVariance && (doReverseSeqOffsets || useRandomOffsets) &&
+		runCreateFilesPhase)
+		throw ProgException("S3 MPU size variance can only be used with sequential upload.");
 
 	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
 		!s3EndpointsStr.empty() &&
@@ -1578,16 +1650,20 @@ void ProgArgs::parseAndCheckPaths()
 
 	// if we get here then this is not the master of a distributed run...
 
-	// skip open of local paths for S3
+    prepareS3ClientSingleton();
+
+	// skip open of local paths for S3/HDFS/NetBench
 	if(!s3EndpointsStr.empty() || useHDFS || useNetBench)
 	{
 		benchPathType = BenchPathType_DIR;
 		return;
 	}
 
-	prepareBenchPathFDsVec();
-	prepareCuFileHandleDataVec();
-	prepareMmapVec();
+    // if we get here then we have a normal file system as bench path
+
+    prepareBenchPathFDsVec();
+    prepareCuFileHandleDataVec();
+    prepareMmapVec();
 }
 
 /**
@@ -1855,6 +1931,30 @@ void ProgArgs::prepareMmapVec()
 		mmapVec[i] = (char*)FileTk::mmapAndMadvise<ProgException>(fileSize, protectionMode,
 			MAP_SHARED, fd, madviseFlags, benchPathsVec[i].c_str() );
 	}
+}
+
+/**
+ * Prepare singleton S3 client to be shared by all worker threads. Cleanup is done in
+ * resetBenchPath() after all worker threads have finished.
+ */
+void ProgArgs::prepareS3ClientSingleton()
+{
+#ifdef S3_SUPPORT
+    if(s3EndpointsVec.empty() )
+        return; // nothing to do
+
+    if(!useS3ClientSingleton)
+        return; // nothing to do
+
+    S3Tk::initS3Global(this);
+
+    // init singleton
+    s3ClientSingleton = S3Tk::initS3Client(this,
+        std::chrono::system_clock::now().time_since_epoch().count(),
+        &s3IsInterruptionRequested,
+        &s3SingletonEndpointStr);
+
+#endif // S3_SUPPORT
 }
 
 /**
@@ -3027,6 +3127,11 @@ void ProgArgs::printHelpS3()
 		"S3 Service Arguments", TerminalTk::getTerminalLineLength(80) );
 
     argsS3ServiceArgsDescription.add_options()
+        (ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+            "Path to file containing multiple S3 credentials. Each line in format: "
+            "access_key:secret_key. Lines starting with # are treated as comments.")
+        (ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+            "Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
         (ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
             "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
         (ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
@@ -3318,14 +3423,14 @@ void ProgArgs::printVersionAndBuildInfo()
 #endif
 
 #if defined(S3_SUPPORT) && defined(S3_AWSCRT)
-    includedStream << "s3 ";
-    includedStream << "s3crt ";
+    includedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    includedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #elif defined(S3_SUPPORT)
-    includedStream << "s3 ";
-    notIncludedStream << "s3crt ";
+    includedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #else
-    notIncludedStream << "s3 ";
-    notIncludedStream << "s3crt ";
+    notIncludedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #endif
 
 #ifdef SYNCFS_SUPPORT
@@ -3338,6 +3443,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	includedStream << "syscallh ";
 #else
 	notIncludedStream << "syscallh ";
+#endif
+
+#ifdef THREADNAME_SUPPORT
+	includedStream << "threadname ";
+#else
+	notIncludedStream << "threadname ";
 #endif
 
 	std::cout << " * Included optional build features: " <<
@@ -3434,8 +3545,13 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGrantee = tree.get<std::string>(ARG_S3ACLGRANTEE_LONG);
 	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
+	s3CredentialsFile = tree.get<std::string>(ARG_S3CREDFILE_LONG);
+    s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3ErrorHeadersStr = tree.get<std::string>(ARG_S3ERRORHEADERS_LONG);
+    s3MaxConnections = tree.get<unsigned>(ARG_S3MAXCONNS_LONG);
+    s3MpuSizeVariance = tree.get<size_t>(ARG_S3MPUSIZEVAR_LONG);
+    s3MpuSplitSize = tree.get<size_t>(ARG_S3MPUSPLITSIZE_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
@@ -3445,6 +3561,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
     s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
     s3CorsOrigin = tree.get<std::string>(ARG_S3CORSORIGIN_LONG);
+    s3ThroughputTargetGbps = tree.get<unsigned>(ARG_S3TROUGHPUTTARGET_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -3461,9 +3578,11 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useOpsLogLocking = tree.get<bool>(ARG_OPSLOGLOCKING_LONG);
 	useRandomUnaligned = tree.get<bool>(ARG_NORANDOMALIGN_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
+    useS3ClientSingleton = tree.get<bool>(ARG_S3CLIENTSINGLETON_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
+    useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
 
 	// dynamically calculated values for service hosts...
@@ -3582,7 +3701,14 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
+    outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
+    outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
+    outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
+    outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
+    outTree.put(ARG_S3CLIENTSINGLETON_LONG, useS3ClientSingleton);
+	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
+    outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3ERRORHEADERS_LONG, s3ErrorHeadersStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
@@ -3590,12 +3716,18 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
+    outTree.put(ARG_S3MAXCONNS_LONG, s3MaxConnections);
+    outTree.put(ARG_S3MPUSIZEVAR_LONG, s3MpuSizeVariance);
+    outTree.put(ARG_S3MPUSPLITSIZE_LONG, s3MpuSplitSize);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
     outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
-    outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
+    outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
+    outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
+    outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
     outTree.put(ARG_S3SESSION_TOKEN_LONG, s3SessionToken);
@@ -3618,6 +3750,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
     outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
+    outTree.put(ARG_S3TROUGHPUTTARGET_LONG, s3ThroughputTargetGbps);
+    outTree.put(ARG_S3VIRTADDRESSING_LONG, useS3VirtualAddressing);
+    outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
+    outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
+    outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_STRIDEDACCESS_LONG, useStridedAccess);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
@@ -3701,13 +3839,21 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 /**
  * Reset benchmark path, close associated file descriptors (incl. cuFile driver) and free/reset
  * any other resources that are associated with the previous benchmark phase. Intended to be used
- * in service mode to not waste/block resources while idle.
+ * in service mode to not waste/block resources while idle, but also for local standalone mode e.g.
+ * to cleanup singleton S3 client before global S3 uninit.
  */
 void ProgArgs::resetBenchPath()
 {
-	// cleanup any old memory mappings
+    LOGGER(Log_DEBUG, "Resetting bench path..." << std::endl);
 
-	for(char*& mmapPtr : mmapVec)
+#ifdef S3_SUPPORT
+    s3ClientSingleton.reset();
+    s3IsInterruptionRequested = false;
+    s3SingletonEndpointStr.clear();
+#endif // S3_SUPPORT
+
+	// cleanup any old memory mappings
+    for(char*& mmapPtr : mmapVec)
 	{
 		if(mmapPtr == MAP_FAILED)
 			continue;
@@ -3753,7 +3899,7 @@ void ProgArgs::resetBenchPath()
 		cuFileDriverClose();
 
 	isCuFileDriverOpen = false;
-#endif
+#endif // CUFILE_SUPPORT
 }
 
 /**

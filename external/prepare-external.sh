@@ -6,10 +6,11 @@
 # (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
 # Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
 # uWebSockets will only be prepared when PREP_UWS=1 is set.
+# libbacktrace will only b prepared when PREP_LIBBACKTRACE=1 is set.
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
-NUM_PARALLEL_JOBS=1  # Number of parallel "make -j X" jobs
+NUM_PARALLEL_JOBS=1  # Number of parallel "make" jobs, gets set from "make" env vars or cpu cores
 
 
 # Clone Simple-Web-Server git repo and switch to required tag. Nothing to configure/build/install
@@ -224,7 +225,9 @@ prepare_awssdk()
 		return 0; # AWS SDK build not required, so we're done here
 	fi
 
-	local REQUIRED_TAG="1.11.628-elbencho-tag"
+	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.712"}"
+	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/aws/aws-sdk-cpp.git"}"
+
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
@@ -240,10 +243,10 @@ prepare_awssdk()
 
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
-		echo "Cloning AWS SDK git repo..."
+		echo "Cloning AWS SDK git repo... [Repo: $GIT_REPO] [Branch: $REQUIRED_TAG]"
 
 		git clone --recursive --depth 1 --branch "$REQUIRED_TAG" \
-			https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
+			"$GIT_REPO" $CLONE_DIR
 		if [ $? -ne 0 ]; then
 			echo "ERROR: Cloning AWS SDK git repo failed." \
 				"Consider \"make clean-all\" before retrying a partially completed clone."
@@ -255,7 +258,7 @@ prepare_awssdk()
 
 	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
 
-	if [ "$S3_AWSCRT" -eq 1 ]; then
+	if [ "$S3_AWSCRT" = 1 ]; then
 	  local cmake_build_opts=(-DBUILD_ONLY="s3-crt" "-DUSE_OPENSSL=OFF" \
 	      "-DUSE_CRT_HTTP_CLIENT=ON")
 	else
@@ -378,15 +381,65 @@ prepare_mimalloc()
 		return 0
 
 	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: mimalloc prepared."
+
+	return 0
 }
 
+# Prepare git clone and required tag.
+prepare_libbacktrace()
+{
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/libbacktrace"
+	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/libbacktrace/install"
+
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# clone if directory does not exist yet
+	if [ ! -d "$CLONE_DIR" ]; then
+		echo "Cloning libbacktrace git repo..."
+		git clone https://github.com/ianlancetaylor/libbacktrace.git $CLONE_DIR
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+	fi
+
+	# directory exists, check if we already have the lib.
+	# (this is the fast path for dependency calls from Makefile)
+	cd "$CLONE_DIR" && \
+		if [ -f install/lib/libbacktrace.a ] ; then
+			# Already exists, so nothing to do
+			return 0;
+		fi && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	# we need to build it...
+
+	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
+	mkdir -p "$INSTALL_DIR" && \
+		cd "$CLONE_DIR" && \
+		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared && \
+		make -j "$NUM_PARALLEL_JOBS" install  && \
+		cd "$EXTERNAL_BASE_DIR" && \
+		return 0
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: libbacktrace prepared."
+
+	return 0
+}
 
 ########### End of function definitions ############
+
 
 # Get number of parallel jobs from "make" environment variables
 NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
 
+# Use number of CPU cores if "make" env vars are not set or use "1" as fallback
 if [ -z "$NUM_PARALLEL_JOBS" ]; then
+	# Try to get number of CPU cores macOS style (hw.ncpu) or Linux style (nproc) or fallback to 1
 	NUM_PARALLEL_JOBS="$(uname | grep -q Darwin && sysctl -n hw.ncpu || nproc || echo 1)";
 fi
 
@@ -402,4 +455,8 @@ fi
 
 if [ "$PREP_MIMALLOC" = "1" ]; then
 	prepare_mimalloc
+fi
+
+if [ "$PREP_LIBBACKTRACE" = "1" ]; then
+	prepare_libbacktrace
 fi

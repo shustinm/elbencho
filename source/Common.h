@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef COMMON_H_
 #define COMMON_H_
 
@@ -81,7 +84,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.0.29"
+#define HTTP_PROTOCOLVERSION	"3.0.37"
 
 /**
  * Default access mode bits for new files.

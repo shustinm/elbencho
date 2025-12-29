@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef TOOLKITS_S3TK_H_
 #define TOOLKITS_S3TK_H_
 
@@ -9,6 +12,7 @@
 	#include <aws/core/utils/memory/AWSMemory.h>
 	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 	#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
+    #include <aws/core/VersionConfig.h>
 	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
 
     #ifdef S3_AWSCRT
@@ -32,6 +36,20 @@
         using S3ChecksumAlgorithm = S3::ChecksumAlgorithm;
         namespace S3ChecksumAlgorithmMapper = S3::ChecksumAlgorithmMapper;
     #endif // S3_AWSCRT
+
+    /* calc a comparable integer value for a specific AWS SDK CPP version; we use multipliers
+        (1,000,000 and 10,000) to ensure the patch/minor numbers don't overlap. */
+    #define AWS_VER_CALC(maj, min, pat) ( (maj * 1000000) + (min * 10000) + (pat) )
+
+    // Calculate the integer value of the CURRENTLY installed SDK
+    #define AWS_CURRENT_VER_VAL AWS_VER_CALC( \
+        AWS_SDK_VERSION_MAJOR, AWS_SDK_VERSION_MINOR, AWS_SDK_VERSION_PATCH)
+
+    /* AWS SDK CPP version check macro: Returns true (1) if current version >= required version,
+        e.g. "#if !AWS_SDK_AT_LEAST(1, 11, 708)" */
+    #define AWS_SDK_AT_LEAST(req_maj, req_min, req_pat) \
+        (AWS_CURRENT_VER_VAL >= AWS_VER_CALC(req_maj, req_min, req_pat))
+
 
     /**
      * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
@@ -113,7 +131,7 @@ class S3Tk
 #ifdef S3_SUPPORT
 		static bool globalInitCalled; // to make uninit a no-op if init wasn't called
 
-		static Aws::SDKOptions* s3SDKOptions;
+		static Aws::SDKOptions* s3SDKOptions; // needed for init and again for uninit later
 
     // inliners
     public:

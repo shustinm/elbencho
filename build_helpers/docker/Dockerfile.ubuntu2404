@@ -1,6 +1,6 @@
 # Full elbencho deb install of latest github master on Ubuntu 24.04
 
-FROM ubuntu:24.04 as builder
+FROM ubuntu:24.04 AS builder
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
@@ -17,7 +17,7 @@ COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
-    apt install -y /tmp/elbencho*.deb && \
+    apt install -y /tmp/elbencho*.deb jq && \
     rm -f /tmp/elbencho*.deb && \
     apt clean all && \
     /usr/bin/elbencho --version

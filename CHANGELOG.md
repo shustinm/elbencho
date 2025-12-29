@@ -1,6 +1,20 @@
 # Changelog of elbencho
 
-## v3.0.36 (work in progress)
+## v3.0.38 (work in progress)
+
+## v3.0.37 (Dec 27, 2025)
+
+### New Features & Enhancements
+* Added tool to summarize elbencho JSON results into a formatted table. (`elbencho-summarize-json`)
+* Added option for Excel (`.xlsx`) file generation to the elbencho chart tool. (`elbencho-chart --excel PATH`)
+* Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`.)
+* Added support for multiple S3 credentials. (See `--s3credfile` & `--s3credlist`.)
+* Added option to use a single shared S3 client instance instead of separate instances for each worker thread. (See `--s3single`.)
+* Added option for random variance in S3 multi-part upload part sizes. (See `--s3mpusizevar`.)
+* Added option to use S3 virtual bucket addressing. (See `--s3virtaddr`.)
+* Added option to define max number of S3 connections. (See `--s3maxconns`.)
+* Added option to let the S3 CRT client handle the MPU part split internally. (See `--s3mpusplit`.)
+* Added option to define the target throughput for the S3 CRT client for implicit definition of max number of connections. (See `--s3targetgbps`.)
 
 ### New Features & Enhancements
 * Added support for list parts requests at the end of multipart uploads (enable by passing the `--s3listparts` parameter).
@@ -9,6 +23,17 @@
 
 ### General Changes
 * Added config values to `--jsonfile` output.
+* Removed dependency on lib boost_system for compatibility with more recent boost versions.
+* Added `nvidia-open` package to CUDA container to have `nvidia-smi` tool available inside container.
+* Changed order of fadvise and madvise processing so that "dontneed" is processed first when combined with other advises like "sequential" or "random".
+* Added compressed minimum amount of debug symbols and automatic download of `libbacktrace` external package to enable backtraces with line numbers on Linux.
+* Updated S3 to latest AWS SDK CPP v1.11.712.
+
+### Fixes
+* Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is a workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
+
+### Contributors
+* Thanks to John Fragalla, Kiran Modukuri, Tamar Baran, Michael Shustin, Yair Elharrar, Darrell Bishop & GitHub user panghubaobao777 for contributions, helpful comments and suggestions.
 
 ## v3.0.35 (Sep 1, 2025)
 

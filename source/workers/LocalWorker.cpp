@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <fcntl.h>
 #include <iterator>
 #include <sys/mman.h>
@@ -81,7 +84,7 @@
     #else
         namespace S3 = Aws::S3::Model;
         using S3Errors = Aws::S3::S3Errors;
-    #endif // !S3_AWSCRT
+    #endif // S3_AWSCRT
 
     S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
 
@@ -490,7 +493,7 @@ void LocalWorker::uninitLibAio()
         return; // no libaio needed
 
     if(libaioContext.ioContext != NULL)
-	    io_queue_release(libaioContext.ioContext);
+        io_queue_release(libaioContext.ioContext);
 
 #endif // LIBAIO_SUPPORT
 }
@@ -508,7 +511,16 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	s3Client = S3Tk::initS3Client(progArgs, workerRank, &isInterruptionRequested, &s3EndpointStr);
+    if(progArgs->getUseS3ClientSingleton() )
+    { // using shared singleton s3 client instead of per-worker s3 client instances
+        s3Client = progArgs->getS3ClientSingleton();
+        s3EndpointStr = progArgs->getS3SingletonEndpointStr();
+    }
+    else
+    { // using per-worker s3 client instances
+        s3Client = S3Tk::initS3Client(progArgs, workerRank, &isInterruptionRequested,
+            &s3EndpointStr);
+    }
 
     useS3SSE = progArgs->getUseS3SSE();
 
@@ -558,6 +570,7 @@ void LocalWorker::uninitS3Client()
 		return; // nothing to do
 
 	// s3Client is a std::shared_ptr, so reset() will cleanup the client object
+	// (note: this could also be the shared singleton s3 client from ProgArgs)
 	s3Client.reset();
 
 #endif // S3_SUPPORT
@@ -4421,13 +4434,22 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
-	auto request = S3::CreateBucketRequest().WithBucket(bucketName);
-
-	// s3ModeAddCorsHeader(request);
 
     OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
 
-    const auto createOutcome = s3Client->CreateBucket(request);
+    S3::CreateBucketRequest createRequest;
+    createRequest.SetBucket(bucketName);
+
+    // s3ModeAddCorsHeader(createRequest);  // CORS header support (if needed)
+
+    // Check if multi-credentials are being used and set ACL to public-read-write
+    if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
+    {
+        createRequest.SetACL(S3::BucketCannedACL::public_read_write);
+        LOGGER(Log_DEBUG, "Setting bucket ACL to public-read-write for multi-credentials job" << std::endl);
+    }
+
+    const auto createOutcome = s3Client->CreateBucket(createRequest);
 
     OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
 
@@ -4857,8 +4879,10 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
         [&](const Aws::Http::HttpRequest* request, long long numBytes)
         { atomicLiveOps.numBytesDone += numBytes; } );
 
-    request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-        { return !isInterruptionRequested.load(); } );
+    #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+        request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+            { return !isInterruptionRequested.load(); } );
+    #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
     if (progArgs->getDoS3CorsTest())
         request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
@@ -4912,6 +4936,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+    const size_t s3MpuSizeVariance = progArgs->getS3MpuSizeVariance();
 
     // S T E P 0: hand over to async function if iodepth is given
 
@@ -4954,12 +4979,27 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 2: upload one block-sized part in each loop pass
 
+    uint64_t currentPartNum = 0; // valid range is 1..10K
+
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const uint64_t currentPartNum =
-			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
+        const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+        size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+        /* note: in normal forward mode, blockSize is variable because of s3MpuSizeVariance, so we
+            can't use the currentPartNum formula with fixed blockSize from reverse mode. */
+        currentPartNum = (progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) ?
+            1 + (currentOffset / rwOffsetGen->getBlockSize() ) : (currentPartNum+1);
+
+        /* note: rwOffsetGen->getBlockSize() comparison is to prevent random subtract from last part
+            (to avoid risk of two trailing parts of less than usual 5MiB min allowed part size). */
+        if(s3MpuSizeVariance && (blockSize == rwOffsetGen->getBlockSize() ) )
+        {
+            const size_t randBlockSizeVar = randBlockVarReseed->next() % s3MpuSizeVariance;
+
+            IF_LIKELY(randBlockSizeVar < blockSize)
+                blockSize = blockSize - randBlockSizeVar;
+        }
 
         /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
             have the exact remaining blockSize as len. otherwise the AWS SDK will send full
@@ -5000,8 +5040,10 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
         if (progArgs->getDoS3CorsTest())
             uploadPartRequest.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
@@ -5312,10 +5354,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                uploadPartRequest.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+                    uploadPartRequest.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5404,7 +5448,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
     }
     catch(...)
     {
-        isInterruptionRequested = true; // for SetContinueRequestHandler()
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
@@ -5558,8 +5602,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -5769,10 +5815,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                uploadPartRequest.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+                    uploadPartRequest.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5873,7 +5921,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
     }
     catch(...)
     {
-        isInterruptionRequested = true; // for SetContinueRequestHandler()
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
@@ -6218,8 +6266,10 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 					atomicLiveOps.numBytesDone += numBytes;
 			} );
 
-		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+            request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -6397,10 +6447,12 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                             atomicLiveOps.numBytesDone += numBytes;
                     } );
 
-                request.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+                    request.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -6488,7 +6540,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
     }
     catch(...)
     {
-        isInterruptionRequested = true;
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)

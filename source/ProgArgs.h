@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef PROGARGS_H_
 #define PROGARGS_H_
 
@@ -5,11 +8,13 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <time.h>
+
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
 #include "PathStore.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h"
 
 
@@ -155,6 +160,9 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
 #define ARG_S3CORSORIGIN_LONG       "s3corsorigin"
+#define ARG_S3CLIENTSINGLETON_LONG  "s3single"
+#define ARG_S3CREDFILE_LONG         "s3credfile"
+#define ARG_S3CREDLIST_LONG         "s3credlist"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3FASTPUT_LONG          "s3fastput"
@@ -166,6 +174,9 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_S3MAXCONNS_LONG         "s3maxconns"
+#define ARG_S3MPUSIZEVAR_LONG       "s3mpusizevar"
+#define ARG_S3MPUSPLITSIZE_LONG     "s3mpusplit"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
@@ -187,6 +198,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ERRORHEADERS_LONG     "s3errheaders"
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
+#define ARG_S3TROUGHPUTTARGET_LONG  "s3targetgbps"
+#define ARG_S3VIRTADDRESSING_LONG   "s3virtaddr"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -345,6 +358,12 @@ class ProgArgs
 							vec will also be filled (with unreg'ed handles) if cuFile API is not
 							selected to make things easier for localworkers */
 
+#ifdef S3_SUPPORT
+        std::shared_ptr<S3Client> s3ClientSingleton; // shared singleton s3 client for workers
+        std::atomic_bool s3IsInterruptionRequested{false}; // interrupt for s3 singleton lambdas
+        std::string s3SingletonEndpointStr; // endpoint string for singleton s3 client
+#endif // S3_SUPPORT
+
 		int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
 
         // config options in alphabetic order...
@@ -479,6 +498,8 @@ class ProgArgs
 		std::string s3AclGrantee; // s3 acl grantee
 		std::string s3AclGranteeType; // s3 acl grantee type
 		std::string s3AclGranteePermissions; // s3 acl grantee permission flags (ARG_S3_ACL_...)
+		std::string s3CredentialsFile; // path to file containing multiple S3 credentials
+        std::string s3CredentialsList; // comma-separated list of S3 credentials
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
@@ -487,6 +508,11 @@ class ProgArgs
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
+        unsigned s3MaxConnections; // max conns per s3 client instance (not eff. for S3CrtClient)
+        size_t s3MpuSizeVariance; // random subtract variance in bytes for part sizes of MPU
+        std::string s3MpuSizeVarianceOrigStr; // original s3MpuSizeVariance str from user with unit
+        size_t s3MpuSplitSize; // mpu split size by client instead of by blockSize
+        std::string s3MpuSplitSizeOrigStr; // original s3MpuSplitSize str from user with unit
 		bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
@@ -497,6 +523,7 @@ class ProgArgs
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
         std::string s3CorsOrigin;  // S3 CORS Origin header for testing
+        unsigned s3ThroughputTargetGbps; // S3CrtClient throughput target for number of conns (Gbps)
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -544,13 +571,16 @@ class ProgArgs
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
+        bool useS3ClientSingleton; // use singleton S3 client for all threads
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
         bool useS3SSE; // use SSE-S3 encryption method for S3
+		bool useS3VirtualAddressing; // true to use virtual addressing for S3
         bool useStridedAccess; // use strided file access pattern for shared files
-		std::string s3ChecksumAlgoStr;  // Stores the S3 checksum algorithm value (e.g. "CRC32", "CRC32C", "SHA1", "SHA256")
+		std::string s3ChecksumAlgoStr;  /* Stores the S3 checksum algorithm value (e.g. "CRC32",
+                                            "CRC32C", "SHA1", "SHA256") */
 
 
 		void defineDefaults();
@@ -563,6 +593,7 @@ class ProgArgs
 		void prepareBenchPathFDsVec();
 		void prepareCuFileHandleDataVec();
 		void prepareMmapVec();
+        void prepareS3ClientSingleton();
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNetBenchServersForService();
@@ -603,9 +634,18 @@ class ProgArgs
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 
-        bool getS3BucketMetadataRequested() const {
-            return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning;
-        }
+        // methods related to shared s3 client singleton for workers
+#ifdef S3_SUPPORT
+        std::shared_ptr<S3Client> getS3ClientSingleton() const { return s3ClientSingleton; }
+        void setS3InterruptionRequested() { s3IsInterruptionRequested = true; }
+        std::string getS3SingletonEndpointStr() const { return s3SingletonEndpointStr; }
+#else // !S3_SUPPORT
+        void setS3InterruptionRequested() { /* no-op */ }
+#endif // S3_SUPPORT
+
+
+        bool getS3BucketMetadataRequested() const
+            { return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning; }
         bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
         bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
         bool getRunS3PutObjectMetadata() const
@@ -739,6 +779,8 @@ class ProgArgs
         std::string getS3AclGrantee() const { return s3AclGrantee; }
         std::string getS3AclGranteeType() const { return s3AclGranteeType; }
         std::string getS3AclGranteePermissions() const { return s3AclGranteePermissions; }
+		std::string getS3CredentialsFile() const { return s3CredentialsFile; }
+        std::string getS3CredentialsList() const { return s3CredentialsList; }
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
@@ -748,8 +790,11 @@ class ProgArgs
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
+        size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
+        unsigned getS3MaxConnections() const { return s3MaxConnections; }
+        size_t getS3MpuSplitSize() const { return s3MpuSplitSize; }
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
@@ -759,6 +804,7 @@ class ProgArgs
         std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
         const std::string& getS3CorsOrigin() const { return s3CorsOrigin; }
         bool getDoS3CorsTest() const { return !s3CorsOrigin.empty(); }
+        unsigned getS3ThroughputTargetGbps() const { return s3ThroughputTargetGbps; }
         unsigned short getServicePort() const { return servicePort; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
@@ -794,10 +840,12 @@ class ProgArgs
         bool getUseOpsLogLocking() const { return useOpsLogLocking; }
         bool getUseRandomUnaligned() const { return useRandomUnaligned; }
         bool getUseRandomOffsets() const { return useRandomOffsets; }
+        bool getUseS3ClientSingleton() const { return useS3ClientSingleton; }
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
         bool getUseS3SSE() const { return useS3SSE; }
+        bool getUseS3VirtualAddressing() const { return useS3VirtualAddressing; }
         bool getUseStridedAccess() const { return useStridedAccess; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }

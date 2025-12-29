@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <chrono>
 #include <client_http.hpp>
 #include <csignal>
@@ -122,6 +125,8 @@ joinall_and_exit:
 		std::cerr << LoggerBase::getErrHistory();
 		LoggerBase::clearErrHistory();
 	}
+
+	progArgs.resetBenchPath(); // important here to release shared s3 client before s3 sdk uninit
 
 	S3Tk::uninitS3Global(&progArgs);
 
