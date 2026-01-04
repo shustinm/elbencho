@@ -15,8 +15,6 @@
 * Added option to define max number of S3 connections. (See `--s3maxconns`.)
 * Added option to let the S3 CRT client handle the MPU part split internally. (See `--s3mpusplit`.)
 * Added option to define the target throughput for the S3 CRT client for implicit definition of max number of connections. (See `--s3targetgbps`.)
-
-### New Features & Enhancements
 * Added support for list parts requests at the end of multipart uploads (enable by passing the `--s3listparts` parameter).
 * Added support for list multipart uploads requests at the end of multipart uploads (enable by passing the `--s3listmpu` parameter).
 * Added a benchmark phase to abort incomplete multipart uploads. This phase lists and aborts all MPUs for the configured prefix and runs after file creation (enable by passing the `--s3abortmpu` parameter). The abort phase now properly parallelizes across multiple threads, with each thread listing and aborting only its own directory prefixes.

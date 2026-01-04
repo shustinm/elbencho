@@ -4440,8 +4440,6 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
     S3::CreateBucketRequest createRequest;
     createRequest.SetBucket(bucketName);
 
-    // s3ModeAddCorsHeader(createRequest);  // CORS header support (if needed)
-
     // Check if multi-credentials are being used and set ACL to public-read-write
     if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
     {
