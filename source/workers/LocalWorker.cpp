@@ -5147,11 +5147,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         S3::ListMultipartUploadsRequest listRequest;
         listRequest.WithBucket(bucketName).WithPrefix(prefix);
 
-        OPLOG_PRE_OP("S3ListMultipartUploads", bucketName, 0, 0);
+        auto fullPath = bucketName + "/" + objectName;
+
+        OPLOG_PRE_OP("S3ListMultipartUploads", fullPath, 0, 0);
 
         auto listOutcome = s3Client->ListMultipartUploads(listRequest);
 
-        OPLOG_POST_OP("S3ListMultipartUploads", bucketName, 0, 0,
+        OPLOG_POST_OP("S3ListMultipartUploads", fullPath, 0, 0,
                       !listOutcome.IsSuccess());
 
         IF_UNLIKELY(!listOutcome.IsSuccess()) {
@@ -5165,13 +5167,21 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         }
 
         auto outcome = listOutcome.GetResult();
+        const auto& uploads = outcome.GetUploads();
         // We expect exactly 1 multipart upload because the prefix contains the worker rank,
         // making it specific enough to match only the current upload
-        IF_UNLIKELY(outcome.GetUploads().size() != 1) {
+        IF_UNLIKELY(uploads.size() != 1) {
+            std::string uploadsStr;
+            for(const auto& upload : uploads)
+                uploadsStr += "Key: " + upload.GetKey() +
+                    ", UploadId: " + upload.GetUploadId() + "; ";
+
             throw WorkerException(
                 std::string("Expected exactly 1 multipart upload, but found ") +
-                std::to_string(outcome.GetUploads().size()) + "; " +
-                "Bucket: " + bucketName + "; " + "Prefix: " + outcome.GetPrefix());
+                std::to_string(uploads.size()) + "; " +
+                "Bucket: " + bucketName + "; " +
+                "Prefix: " + outcome.GetPrefix() + "; " +
+                "Uploads: [" + uploadsStr + "]");
         }
     }
 
