@@ -84,6 +84,7 @@ void RemoteWorker::run()
                 case BenchPhase_GET_S3_BUCKET_MD:
                 case BenchPhase_PUT_S3_BUCKET_MD:
                 case BenchPhase_DEL_S3_BUCKET_MD:
+                case BenchPhase_COPYOBJECT:
 				{
 					startBenchPhase();
 

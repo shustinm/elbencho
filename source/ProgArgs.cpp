@@ -576,6 +576,18 @@ void ProgArgs::defineAllowedArgs()
 /*s3c*/	(ARG_S3CHECKSUM_ALGO_LONG, bpo::value(&this->s3ChecksumAlgoStr),
             "S3 checksum algorithm to use (CRC32, CRC32C, SHA1, SHA256). This sets the "
             "x-amz-sdk-checksum-algorithm header for S3 operations. (EXPERIMENTAL)")
+/*s3c*/	(ARG_S3COPYBUCKET_LONG, bpo::value(&this->s3CopyBucket),
+            "Source bucket for S3 CopyObject phase. The benchmark path bucket(s) are used as "
+            "destinations. Requires \"--" ARG_S3COPYOBJ_LONG "\".")
+/*s3c*/	(ARG_S3COPYOBJ_LONG, bpo::bool_switch(&this->runS3CopyObj),
+            "Run a benchmark phase that calls S3 CopyObject for each object. The benchmark path "
+            "bucket(s) are the copy destinations. Use \"--" ARG_S3COPYBUCKET_LONG "\" to specify "
+            "the source bucket and \"--" ARG_S3COPYSRCPFX_LONG "\" for the source key prefix. "
+            "The destination key prefix is controlled by the existing \"--" ARG_S3OBJECTPREFIX_LONG
+            "\" option. This phase runs after file creation.")
+/*s3c*/	(ARG_S3COPYSRCPFX_LONG, bpo::value(&this->s3CopySrcPrefix),
+            "Prefix prepended to source object keys for S3 CopyObject phase. "
+            "Requires \"--" ARG_S3COPYOBJ_LONG "\".")
 /*s3c*/	(ARG_S3CORSORIGIN_LONG, bpo::value(&this->s3CorsOrigin),
             "S3 CORS origin header value. When provided, elbencho will add the '" REQUEST_ORIGIN_HEADER 
             "' header to S3 requests and validate the '" RESPONSE_ORIGIN_HEADER "' response header.")
@@ -952,6 +964,7 @@ void ProgArgs::defineDefaults()
     this->doS3AclPutInline = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
+    this->runS3CopyObj = false;
 	this->doS3BucketTag = false;
 	this->doS3BucketTagVerify = false;
     this->doS3BucketVersioning = false;
@@ -974,6 +987,8 @@ void ProgArgs::defineDefaults()
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
+    this->s3CopyBucket = "";
+    this->s3CopySrcPrefix = "";
     this->s3CorsOrigin = "";  // Default to empty string (CORS testing disabled)
 	this->s3CredentialsFile = "";
 	this->s3CredentialsList = "";
@@ -1405,6 +1420,15 @@ void ProgArgs::checkPathDependentArgs()
 		s3EndpointsVec.empty() )
 		throw ProgException("Putting/getting bucket or object ACLs requires S3 endpoints "
 			"definition.");
+
+	if(runS3CopyObj && s3EndpointsVec.empty() )
+		throw ProgException("S3 CopyObject phase requires S3 endpoints definition.");
+
+	if(!s3CopyBucket.empty() && !runS3CopyObj)
+		throw ProgException("\"--" ARG_S3COPYBUCKET_LONG "\" requires \"--" ARG_S3COPYOBJ_LONG "\".");
+
+	if(!s3CopySrcPrefix.empty() && !runS3CopyObj)
+		throw ProgException("\"--" ARG_S3COPYSRCPFX_LONG "\" requires \"--" ARG_S3COPYOBJ_LONG "\".");
 
 	if(!s3EndpointsVec.empty() && s3MpuSizeVariance && (doReverseSeqOffsets || useRandomOffsets) &&
 		runCreateFilesPhase)
@@ -2661,7 +2685,7 @@ void ProgArgs::loadCustomTreeFile()
 	// load file trees
 
 	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase ||
-		runS3AclPut || runS3AclGet || runS3BucketAclPut || runS3BucketAclGet)
+		runS3AclPut || runS3AclGet || runS3BucketAclPut || runS3BucketAclGet || runS3CopyObj)
 	{
 		// load tree of non-shared files (i.e. files that are equal to or smaller than blocksize)
 
@@ -3531,6 +3555,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3AclPut = tree.get<bool>(ARG_S3ACLPUT_LONG);
 	runS3BucketAclGet = tree.get<bool>(ARG_S3BUCKETACLGET_LONG);
 	runS3BucketAclPut = tree.get<bool>(ARG_S3BUCKETACLPUT_LONG);
+    s3CopyBucket = tree.get<std::string>(ARG_S3COPYBUCKET_LONG);
+    runS3CopyObj = tree.get<bool>(ARG_S3COPYOBJ_LONG);
+    s3CopySrcPrefix = tree.get<std::string>(ARG_S3COPYSRCPFX_LONG);
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
@@ -3707,6 +3734,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
     outTree.put(ARG_S3CLIENTSINGLETON_LONG, useS3ClientSingleton);
+    outTree.put(ARG_S3COPYBUCKET_LONG, s3CopyBucket);
+    outTree.put(ARG_S3COPYOBJ_LONG, runS3CopyObj);
+    outTree.put(ARG_S3COPYSRCPFX_LONG, s3CopySrcPrefix);
 	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
     outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);

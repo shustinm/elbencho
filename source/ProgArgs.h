@@ -159,6 +159,9 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
+#define ARG_S3COPYOBJ_LONG          "s3copyobj"
+#define ARG_S3COPYBUCKET_LONG       "s3copybucket"
+#define ARG_S3COPYSRCPFX_LONG       "s3copysrcpfx"
 #define ARG_S3CORSORIGIN_LONG       "s3corsorigin"
 #define ARG_S3CLIENTSINGLETON_LONG  "s3single"
 #define ARG_S3CREDFILE_LONG         "s3credfile"
@@ -484,6 +487,7 @@ class ProgArgs
 		bool runS3AclPut; // change object acl
 		bool runS3BucketAclGet; // retrieve bucket acl
 		bool runS3BucketAclPut; // change bucket acl
+        bool runS3CopyObj; // run S3 CopyObject phase
         bool runS3StatDirs; // HeadBucket (and other bucket MD ops, goes well with doS3BucketTag)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
@@ -498,6 +502,8 @@ class ProgArgs
 		std::string s3AclGrantee; // s3 acl grantee
 		std::string s3AclGranteeType; // s3 acl grantee type
 		std::string s3AclGranteePermissions; // s3 acl grantee permission flags (ARG_S3_ACL_...)
+        std::string s3CopyBucket; // source bucket override for S3 CopyObject phase
+        std::string s3CopySrcPrefix; // source key prefix for S3 CopyObject phase
 		std::string s3CredentialsFile; // path to file containing multiple S3 credentials
         std::string s3CredentialsList; // comma-separated list of S3 credentials
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
@@ -768,6 +774,7 @@ class ProgArgs
         bool getRunS3AclGet() const { return runS3AclGet; }
         bool getRunS3BucketAclPut() const { return runS3BucketAclPut; }
         bool getRunS3BucketAclGet() const { return runS3BucketAclGet; }
+        bool getRunS3CopyObjPhase() const { return runS3CopyObj; }
         bool getRunS3StatDirs() const { return runS3StatDirs; }
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
@@ -779,6 +786,8 @@ class ProgArgs
         std::string getS3AclGrantee() const { return s3AclGrantee; }
         std::string getS3AclGranteeType() const { return s3AclGranteeType; }
         std::string getS3AclGranteePermissions() const { return s3AclGranteePermissions; }
+        std::string getS3CopyBucket() const { return s3CopyBucket; }
+        std::string getS3CopySrcPrefix() const { return s3CopySrcPrefix; }
 		std::string getS3CredentialsFile() const { return s3CredentialsFile; }
         std::string getS3CredentialsList() const { return s3CredentialsList; }
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
