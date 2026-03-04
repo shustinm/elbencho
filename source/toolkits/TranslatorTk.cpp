@@ -89,6 +89,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
         case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GETBUCKETMETADATA;
         case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUTBUCKETMETADATA;
         case BenchPhase_DEL_S3_BUCKET_MD: return PHASENAME_DELBUCKETMETADATA;
+        case BenchPhase_COPYOBJECT: return PHASENAME_COPYOBJECT;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +
@@ -139,6 +140,7 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_PUT_S3_OBJECT_MD:
         case BenchPhase_ABORT_MPU:
         case BenchPhase_DEL_S3_OBJECT_MD:
+        case BenchPhase_COPYOBJECT:
         {
             retVal = progArgs->getS3EndpointsVec().empty() ?
                 PHASEENTRYTYPE_FILES : PHASEENTRYTYPE_OBJECTS;

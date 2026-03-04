@@ -133,6 +133,9 @@ _elbencho_opts()
         --s3bversion
         --s3bversionverify
         --s3chksumalgo
+        --s3copyobj
+        --s3copybucket
+        --s3copysrcpfx
         --s3corsorigin
         --s3credfile
         --s3credlist
@@ -286,6 +289,10 @@ _elbencho()
         --s3aclgtype)
         ;&
         --s3chksumalgo)
+        ;&
+        --s3copybucket)
+        ;&
+        --s3copysrcpfx)
         ;&
         --s3corsorigin)
         ;&

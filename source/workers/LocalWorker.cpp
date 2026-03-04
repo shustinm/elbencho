@@ -29,6 +29,7 @@
 	#include INCLUDE_AWS_S3(model/AbortMultipartUploadRequest.h)
 	#include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
 	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
+	#include INCLUDE_AWS_S3(model/CopyObjectRequest.h)
 	#include INCLUDE_AWS_S3(model/CreateBucketRequest.h)
 	#include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
 	#include INCLUDE_AWS_S3(model/DeleteBucketRequest.h)
@@ -304,12 +305,13 @@ void LocalWorker::run()
 						s3ModeIterateBuckets();
 					} break;
 
-					case BenchPhase_PUTOBJACL:
-					case BenchPhase_GETOBJACL:
-					{
-						progArgs->getTreeFilePath().empty() ?
-							s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-					} break;
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
+				case BenchPhase_COPYOBJECT:
+				{
+					progArgs->getTreeFilePath().empty() ?
+						s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+				} break;
 
 					case BenchPhase_LISTOBJECTS:
 					{
@@ -3973,6 +3975,9 @@ void LocalWorker::s3ModeIterateObjects()
 			if(benchPhase == BenchPhase_GETOBJACL)
 				s3ModeGetObjectAcl(bucketVec[bucketIndex], currentObjectPath);
 
+            if(benchPhase == BenchPhase_COPYOBJECT)
+                s3ModeCopyObject(bucketVec[bucketIndex], currentObjectPath);
+
             if(benchPhase == BenchPhase_DEL_S3_OBJECT_MD)
             {
                 if (progArgs->getDoS3ObjectTagging())
@@ -4189,6 +4194,9 @@ void LocalWorker::s3ModeIterateCustomObjects()
 
 		if(benchPhase == BenchPhase_GETOBJACL)
 			s3ModeGetObjectAcl(bucketName, objectPrefix + currentPathElem.path);
+
+        if(benchPhase == BenchPhase_COPYOBJECT)
+            s3ModeCopyObject(bucketName, objectPrefix + currentPathElem.path);
 
 		if(benchPhase == BenchPhase_DELETEFILES)
 			s3ModeDeleteObject(bucketName, objectPrefix + currentPathElem.path);
@@ -7177,6 +7185,68 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 						verifyGrant.GetPermission() ) );
 		}
 	} // end of verifcation
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Copy an S3 object using the S3 CopyObject API.
+ *
+ * The @dstBucket parameter is the iterated benchmark path bucket and is always the copy
+ * destination. The source bucket is controlled by --s3copybucket (falls back to @dstBucket when
+ * not set).
+ *
+ * Destination key: @objectName as produced by the iterator (already includes --s3objprefix).
+ * Source key: --s3copysrcpfx prepended to the base object name. The base name is derived by
+ *   stripping --s3objprefix from @objectName, so that --s3copysrcpfx and --s3objprefix can be
+ *   used independently to point at different prefixes in the source and destination.
+ *
+ * @dstBucket destination bucket (the iterated benchmark path bucket).
+ * @objectName destination object key as produced by the iterator (includes --s3objprefix).
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCopyObject(const std::string& dstBucket, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+    const std::string& srcBucketArg = progArgs->getS3CopyBucket();
+    const std::string& srcBucket = srcBucketArg.empty() ? dstBucket : srcBucketArg;
+
+    const std::string& srcPrefix = progArgs->getS3CopySrcPrefix();
+    const std::string& dstPrefix = progArgs->getS3ObjectPrefix();
+
+    // objectName already has dstPrefix applied by the iterator. Strip it to get the base name so
+    // that --s3copysrcpfx and --s3objprefix independently control source and destination paths.
+    const std::string& baseName =
+        (!dstPrefix.empty() && objectName.compare(0, dstPrefix.size(), dstPrefix) == 0)
+            ? objectName.substr(dstPrefix.size())
+            : objectName;
+
+    const std::string srcKey = srcPrefix + baseName;
+    const std::string& dstKey = objectName;
+
+    // CopySource format required by the API: "bucket/key" (URL-encoded if needed, but plain ASCII
+    // object names used in benchmarks do not require encoding)
+    const std::string copySource = srcBucket + "/" + srcKey;
+
+    S3::CopyObjectRequest request;
+    request.WithBucket(dstBucket)
+        .WithKey(dstKey)
+        .WithCopySource(copySource);
+
+    s3ModeAddServerSideEncryption(request);
+
+    OPLOG_PRE_OP("S3CopyObject", srcBucket + "/" + srcKey + " -> " +
+        dstBucket + "/" + dstKey, 0, 0);
+
+    S3::CopyObjectOutcome outcome = s3Client->CopyObject(request);
+
+    OPLOG_POST_OP("S3CopyObject", srcBucket + "/" + srcKey + " -> " +
+        dstBucket + "/" + dstKey, 0, 0, !outcome.IsSuccess() );
+
+    s3ModeThrowOnError(outcome, "Object copy failed.", srcBucket, srcKey);
 
 #endif // S3_SUPPORT
 }

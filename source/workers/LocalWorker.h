@@ -297,6 +297,7 @@ class LocalWorker : public Worker
 		void s3ModeListAndMultiDeleteObjects();
 		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
 		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
+        void s3ModeCopyObject(const std::string& srcBucket, const std::string& objectName);
         void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);

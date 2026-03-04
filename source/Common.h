@@ -68,6 +68,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_PUTBUCKETMETADATA     "PUTBUCKETMD"
 #define PHASENAME_DELBUCKETMETADATA     "DELBUCKETMD"
 #define PHASENAME_ABORT_MPU             "ABORTMPU"
+#define PHASENAME_COPYOBJECT            "COPYOBJ"
 
 #define REQUEST_ORIGIN_HEADER   "Origin"
 #define RESPONSE_ORIGIN_HEADER  "Access-Control-Allow-Origin"
@@ -158,6 +159,7 @@ enum BenchPhase
     BenchPhase_GET_S3_BUCKET_MD,
     BenchPhase_PUT_S3_BUCKET_MD,
     BenchPhase_DEL_S3_BUCKET_MD,
+    BenchPhase_COPYOBJECT,
 };
 
 
