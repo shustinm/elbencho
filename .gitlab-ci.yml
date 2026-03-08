@@ -18,20 +18,28 @@ build:
     BACKTRACE_SUPPORT: "0"
     ALTHTTPSVC_SUPPORT: "0"
     S3_SUPPORT: "1"
-    S3_AWSCRT: "0"
     USE_MIMALLOC: "1"
     BUILD_STATIC: "1"
+  parallel:
+    matrix:
+      - VARIANT: default
+        S3_AWSCRT: "0"
+        EXE_NAME: elbencho
+      - VARIANT: crt
+        S3_AWSCRT: "1"
+        EXE_NAME: elbencho-crt
   script:
-    - mkdir -p artifacts
-    - BIN_PATH=artifacts make -j $(nproc)
-    - echo "EXE_VERSION=$(make version)" > build.env  # This prevents the need for Makefile in the deploy image
+    - mkdir -p artifacts-$VARIANT
+    - BIN_PATH=artifacts-$VARIANT make -j $(nproc)
+    - echo "EXE_VERSION=$(make version)" > build.env
   artifacts:
     paths:
-      - artifacts/
+      - artifacts-$VARIANT/
     reports:
       dotenv: build.env
     expire_in: 3 day
   cache:
+    key: $VARIANT
     paths:
       - external/
 
@@ -49,7 +57,7 @@ deploy:
         EXE_VERSION=${EXE_VERSION}.mr${CI_MERGE_REQUEST_IID}.${CI_COMMIT_SHORT_SHA}
       fi
     - TARBALL_NAME="elbencho-$EXE_VERSION-static-$(uname -m).tar.gz"
-    - tar -czf $TARBALL_NAME -C ./artifacts elbencho
+    - tar -czf $TARBALL_NAME -C ./artifacts-default elbencho -C ../artifacts-crt elbencho-crt
     - echo "Deploying $TARBALL_NAME to Artifactory..."
     - jf rt upload --url=$ARTIFACTORY_URL --user=$ARTIFACTORY_USER --password=$ARTIFACTORY_PASSWORD $TARBALL_NAME files/bencho/$TARBALL_NAME
   dependencies:
