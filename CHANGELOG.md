@@ -173,7 +173,7 @@
 * Removed unused `--s3transman` option to reduce AWS SDK build options and build time.
 * AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
 * Stonewall will no longer get triggered by workers without any work assignments in custom tree mode (e.g. because of very small dataset).
-* Random IOs are aligned by default now. Corresponding option ` --randalign` has been removed and new option `--norandalign` has been added.
+* Random IOs are aligned by default now. Corresponding option `--randalign` has been removed and new option `--norandalign` has been added.
 * Live CSV now has a new column for ISO date.
 
 ### Fixes
@@ -257,10 +257,10 @@ Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for cod
 
 ### New Features & Enhancements
 * Square brackets can now be used to define number lists and ranges in paths, host lists, S3 endpoints.
-    * Examples:
-        * 4 different files (myfile1, myfile2, ...): `elbencho -w /data/myfile[1-4]`
-        * Specify two different hosts (node001, node002): `elbencho --hosts node00[1,2]`
-        * Specify 2x5=10 different S3 servers (192.168.1.1, 192.168.2.1, ...): `elbencho --s3endpoints http://192.168.[1,2].[1,3,5-7]`
+  * Examples:
+    * 4 different files (myfile1, myfile2, ...): `elbencho -w /data/myfile[1-4]`
+    * Specify two different hosts (node001, node002): `elbencho --hosts node00[1,2]`
+    * Specify 2x5=10 different S3 servers (192.168.1.1, 192.168.2.1, ...): `elbencho --s3endpoints http://192.168.[1,2].[1,3,5-7]`
 
 ### General Changes
 * Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
@@ -421,7 +421,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 * New options "--limitread"/"--limitwrite" to limit throughput of each thread.
 * New option "--numhosts" to limit the number of used hosts from a given hosts list or hosts file.
 
-### General Changes ###
+### General Changes
 * Added optional makefile parameters "AWS_LIB_DIR" and "AWS_INCLUDE_DIR" to support using pre-built AWS SDK CPP.
 
 ### Contributors
@@ -441,7 +441,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 * New build option to use Microsoft mimalloc for memory allocations. This is useful to overcome AWS SDK performance limitations related to memory management when linking against musl-libc, e.g. on Alpine Linux.
   * Alpine-based docker containers have been updated to support S3 with mimalloc.
 
-### General Changes ###
+### General Changes
 * Added new GPUDirect Storage option "--gds" as shortcut for "--direct --cufile --gdsbufreg".
 * Added S3 support to Alpine Linux docker container.
 * Updated to latest AWS SDK CPP v1.9.162.
