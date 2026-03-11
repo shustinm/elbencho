@@ -23,6 +23,7 @@ build:
     BUILD_STATIC: "1"
   script:
     - mkdir -p artifacts
+    - make clean-all
     - BIN_PATH=artifacts make -j $(nproc)
     - echo "EXE_VERSION=$(make version)" > build.env  # This prevents the need for Makefile in the deploy image
   artifacts:
@@ -31,9 +32,6 @@ build:
     reports:
       dotenv: build.env
     expire_in: 3 day
-  cache:
-    paths:
-      - external/
 
 deploy:
   stage: deploy
