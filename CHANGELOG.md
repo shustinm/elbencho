@@ -8,6 +8,9 @@
 ### General Changes
 * Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
 
+### Fixes
+* Fixed S3 retry strategy ignoring the `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` environment variables. The custom interruptible retry strategy now wraps the SDK's environment-aware retry strategy instead of hardcoding the default strategy. (Regression introduced in v3.0.33)
+
 ## v3.0.37 (Dec 27, 2025)
 
 ### New Features & Enhancements
