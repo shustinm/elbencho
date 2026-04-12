@@ -34,6 +34,7 @@
 	#include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
 	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
 	#include INCLUDE_AWS_S3(model/CopyObjectRequest.h)
+	#include INCLUDE_AWS_S3(model/CreateBucketConfiguration.h)
 	#include INCLUDE_AWS_S3(model/CreateBucketRequest.h)
 	#include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
 	#include INCLUDE_AWS_S3(model/DeleteBucketRequest.h)
@@ -4483,6 +4484,17 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 
     S3::CreateBucketRequest createRequest;
     createRequest.SetBucket(bucketName);
+
+    // AWS requires LocationConstraint for any region other than us-east-1;
+    // without it, region-specific endpoints reject CreateBucket requests.
+    std::string region = progArgs->getS3Region();
+    if(!region.empty() && region != "us-east-1")
+    {
+        S3::CreateBucketConfiguration bucketConfig;
+        bucketConfig.SetLocationConstraint(
+            S3::BucketLocationConstraintMapper::GetBucketLocationConstraintForName(region));
+        createRequest.SetCreateBucketConfiguration(bucketConfig);
+    }
 
     // Check if multi-credentials are being used and set ACL to public-read-write
     if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
