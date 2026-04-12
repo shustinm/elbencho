@@ -6,6 +6,7 @@ default:
 
 stages:
   - build
+  - test
   - deploy
 
 build:
@@ -32,6 +33,68 @@ build:
     reports:
       dotenv: build.env
     expire_in: 3 day
+    
+# MinIO: merge requests and branches other than dev; not on tags (tags use AWS below).
+test:s3:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.14-trixie-slim
+  services:
+    - name: minio/minio:latest
+      alias: minio
+      entrypoint: [""]
+      command: ["minio", "server", "/data", "--console-address", ":9001"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  variables:
+    ELBENCHO_BIN: "${CI_PROJECT_DIR}/artifacts/elbencho"
+    UV_LINK_MODE: copy
+  script:
+    - chmod +x artifacts/elbencho
+    - apt-get update -qq && apt-get install -yqq curl > /dev/null
+    - curl --retry 60 --retry-delay 1 --retry-connrefused --silent --fail --output /dev/null http://minio:9000/minio/health/live
+    - >-
+      cd tests && uv run pytest s3/ -v -s --tb=short --junitxml=../report.xml
+      --s3endpoints=http://minio:9000
+      --s3key=minioadmin
+      --s3secret=minioadmin
+      --s3region=us-west-1
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 7 day
+  dependencies:
+    - build
+
+# Real AWS S3: dev branch and tags.
+test:s3:aws:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.14-trixie-slim
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_TAG
+  variables:
+    ELBENCHO_BIN: "${CI_PROJECT_DIR}/artifacts/elbencho"
+    UV_LINK_MODE: copy
+  script:
+    - chmod +x artifacts/elbencho
+    - >-
+      cd tests && uv run pytest s3/ -v -s --tb=short --junitxml=../report-aws.xml
+      --s3endpoints=""
+      --s3region=ue-west-1
+      --s3-bucket-prefix="vastdata-infra-s3ci-${CI_PIPELINE_ID}-"
+  artifacts:
+    when: always
+    reports:
+      junit: report-aws.xml
+    expire_in: 7 day
+  dependencies:
+    - build
 
 deploy:
   stage: deploy

@@ -1,0 +1,147 @@
+---
+description: Guide for adding a new S3 pytest for an elbencho feature
+globs: tests/s3/test_*.py
+alwaysApply: false
+---
+
+# Adding a new S3 test for an elbencho feature
+
+## Before writing code
+
+1. Read the elbencho CLI flag(s) for the feature in `docs/usage/help-all.md` or run `elbencho --help-all`.
+2. Decide if the feature is **bucket-level** or **object-level** — this determines which fixture and runner method to use.
+3. Check whether an existing test file already covers the same area; add to it instead of creating a new file.
+
+## File placement
+
+- Tests live in `tests/s3/`. One file per feature area, named `test_<area>.py`.
+- Helpers go in `tests/helpers/` (elbencho runner, boto3 utils). Prefer extending existing helpers over creating new ones.
+
+## Fixtures (defined in `tests/conftest.py`)
+
+| Fixture | Scope | What it gives you |
+|---------|-------|-------------------|
+| `elbencho` | session | `ElbenchoRunner` instance wired to the test S3 endpoint |
+| `s3_client` | session | boto3 S3 client for independent verification |
+| `bucket` | function | a unique bucket name; created before the test, deleted after |
+| `buckets` | function | factory — call `buckets(n)` to get *n* unique buckets; all cleaned up after |
+
+Always use `bucket` or `buckets` for bucket names. Never hardcode bucket names.
+
+## ElbenchoRunner API (`tests/helpers/elbencho.py`)
+
+Use the high-level methods when they fit:
+
+```python
+elbencho.create_buckets([bucket])
+elbencho.delete_buckets([bucket])
+elbencho.stat_buckets([bucket])
+elbencho.write_objects([bucket], threads=1, dirs=0, files=1, size="64k", block="64k", extra_args=[...])
+elbencho.read_objects([bucket],  threads=1, dirs=0, files=1, size="64k", block="64k", extra_args=[...])
+elbencho.delete_objects([bucket], threads=1, dirs=0, files=1, extra_args=[...])
+elbencho.list_objects([bucket], max_keys=1000, prefix=None, extra_args=[...])
+```
+
+For anything not covered, use `elbencho.run()` directly:
+
+```python
+result = elbencho.run(
+    ["--s3someflag", "value", "-w", "-N", "2", "-s", "4k", "-b", "4k", "--no0usecerr"],
+    buckets=[bucket],
+)
+assert result.succeeded
+```
+
+- `result.succeeded` — True when exit code is 0.
+- `result.json_result` — parsed JSON from `--jsonfile`.
+- `result.stderr` / `result.stdout` — raw output.
+- If `expect_fail=False` (default) and elbencho returns non-zero, `ElbenchoError` is raised automatically.
+
+## Two-layer verification pattern
+
+1. **elbencho exit code** — proves the tool itself considers the operation successful.
+2. **boto3 independent check** — confirms the actual S3 state. Use helpers from `tests/helpers/s3_utils.py`:
+
+```python
+from helpers.s3_utils import list_all_objects, bucket_exists, get_object_size, get_object_tags, get_bucket_tags
+```
+
+Not every test needs both layers. Use boto3 when the test's value comes from confirming external state (object count, size, tags). Skip it when the test is about elbencho-internal logic (e.g. `--verify` salt mismatch).
+
+## Test structure
+
+```python
+"""One-line description of what this file tests."""
+
+import pytest
+from helpers.elbencho import ElbenchoError
+from helpers.s3_utils import list_all_objects  # only what you need
+
+
+class TestFeatureName:
+    def test_basic_case(self, elbencho, s3_client, bucket):
+        """What this specific test proves."""
+        # arrange — write objects or set up state
+        elbencho.write_objects([bucket], files=2, size="4k", block="4k")
+
+        # act — exercise the feature
+        result = elbencho.run(
+            ["--s3yourflag", "--no0usecerr", "-N", "2", "-s", "4k", "-b", "4k"],
+            buckets=[bucket],
+        )
+
+        # assert — check elbencho result + optionally verify via boto3
+        assert result.succeeded
+        objects = list_all_objects(s3_client, bucket)
+        assert len(objects) == 2
+
+    def test_expected_failure(self, elbencho, bucket):
+        """Negative test — elbencho should fail."""
+        with pytest.raises(ElbenchoError):
+            elbencho.run(
+                ["--s3yourflag", "--bad-combo", "--no0usecerr"],
+                buckets=[bucket],
+            )
+```
+
+## Conventions to follow
+
+- Group related tests in a class (`TestFeatureName`).
+- Always include `--no0usecerr` in args (suppresses false warnings on fast completes).
+- Use small object sizes for speed (`4k`–`64k`); go larger only when testing multipart (parts must be ≥ 5 MiB except the last one).
+- Mark slow tests with `@pytest.mark.slow`.
+- Docstrings on test methods should say **what is being proved**, not how.
+- When the feature uses dirs (`-n`) and files (`-N`), those same values must match between write and the operation being tested.
+- Pass feature-specific flags via `extra_args=["--s3flag", "value"]` on high-level methods, or inline with `elbencho.run()`.
+
+## Adding a new helper to ElbenchoRunner
+
+If the new feature will be used in many tests, add a method to `ElbenchoRunner`:
+
+```python
+def your_feature(self, buckets, threads=1, files=1, size="4k", block="4k", extra_args=None, **kwargs):
+    args = ["--s3yourflag", "--no0usecerr", "-t", str(threads), "-N", str(files), "-s", size, "-b", block]
+    if extra_args:
+        args += extra_args
+    return self.run(args, buckets=buckets, **kwargs)
+```
+
+## Adding a new boto3 verification helper
+
+If you need a new check (e.g. get encryption config), add it to `tests/helpers/s3_utils.py`:
+
+```python
+def get_bucket_encryption(client, bucket: str) -> dict:
+    resp = client.get_bucket_encryption(Bucket=bucket)
+    return resp.get("ServerSideEncryptionConfiguration", {})
+```
+
+## Checklist
+
+- [ ] Test file is in `tests/s3/` and named `test_<area>.py`
+- [ ] Uses `bucket` or `buckets` fixture (never hardcoded names)
+- [ ] `--no0usecerr` is in every elbencho invocation
+- [ ] Assertions use both exit code and boto3 where appropriate
+- [ ] Small object sizes unless testing multipart
+- [ ] No leftover buckets — fixtures handle cleanup
+- [ ] Run `cd tests && python -m pytest s3/test_<area>.py -v --tb=short` to verify locally

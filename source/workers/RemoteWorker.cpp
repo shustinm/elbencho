@@ -77,7 +77,11 @@ void RemoteWorker::run()
 				case BenchPhase_LISTOBJECTS:
 				case BenchPhase_LISTOBJPARALLEL:
 				case BenchPhase_MULTIDELOBJ:
+                case BenchPhase_GET_OBJECT_RETENTION:
+                case BenchPhase_GET_OBJECT_LEGAL_HOLD:
                 case BenchPhase_GET_S3_OBJECT_MD:
+                case BenchPhase_PUT_OBJECT_RETENTION:
+                case BenchPhase_PUT_OBJECT_LEGAL_HOLD:
                 case BenchPhase_PUT_S3_OBJECT_MD:
                 case BenchPhase_ABORT_MPU:
                 case BenchPhase_DEL_S3_OBJECT_MD:

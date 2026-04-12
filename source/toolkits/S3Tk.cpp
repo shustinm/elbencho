@@ -41,7 +41,105 @@
 
     bool S3Tk::globalInitCalled = false;
     Aws::SDKOptions* S3Tk::s3SDKOptions = NULL;
+
 #endif // S3_SUPPORT
+
+/* Body-logging HTTP client/factory — not applicable to S3_AWSCRT builds since the CRT S3
+   client has its own HTTP stack and does not go through the global HTTP client factory. */
+#if defined(S3_SUPPORT) && !defined(S3_AWSCRT)
+    #include <aws/core/http/HttpClient.h>
+    #include <aws/core/http/HttpClientFactory.h>
+    #include <aws/core/http/curl/CurlHttpClient.h>
+    #include <aws/core/http/standard/StandardHttpRequest.h>
+    #include <aws/core/utils/logging/LogMacros.h>
+
+namespace {
+
+/**
+ * HTTP client wrapper that logs outgoing XML request bodies to the AWS debug log.
+ * Only XML bodies (Content-Type: application/xml) are logged. Binary user-data bodies
+ * are intentionally skipped to prevent corrupting the log file with binary content.
+ * Activated when S3 debug logging is enabled (--s3log > 0).
+ */
+class S3BodyLoggingHttpClient : public Aws::Http::HttpClient
+{
+public:
+    explicit S3BodyLoggingHttpClient(std::shared_ptr<Aws::Http::HttpClient> wrapped)
+        : m_wrapped(std::move(wrapped)) {}
+
+    std::shared_ptr<Aws::Http::HttpResponse> MakeRequest(
+        const std::shared_ptr<Aws::Http::HttpRequest>& request,
+        Aws::Utils::RateLimits::RateLimiterInterface* readLimiter = nullptr,
+        Aws::Utils::RateLimits::RateLimiterInterface* writeLimiter = nullptr) const override
+    {
+        const auto& body = request->GetContentBody();
+
+        // Only log XML bodies — reading binary user data would corrupt the log file.
+        if(body && request->GetContentType() == "application/xml")
+        {
+            const auto startPos = body->tellg();
+            if(startPos != std::ios::pos_type(-1)) // only if stream is seekable
+            {
+                Aws::String content(std::istreambuf_iterator<char>(*body), {});
+                body->clear();         // clear eofbit set by reading to end of stream
+                body->seekg(startPos); // restore position so CURL can read the body
+                if(!content.empty())
+                    AWS_LOGSTREAM_DEBUG("CURL", "(DataOut body) " << content);
+            }
+        }
+        return m_wrapped->MakeRequest(request, readLimiter, writeLimiter);
+    }
+
+    bool SupportsChunkedTransferEncoding() const override
+    {
+        return m_wrapped->SupportsChunkedTransferEncoding();
+    }
+
+private:
+    std::shared_ptr<Aws::Http::HttpClient> m_wrapped;
+};
+
+/**
+ * HTTP client factory that produces S3BodyLoggingHttpClient instances wrapping CurlHttpClient.
+ */
+class S3BodyLoggingHttpClientFactory : public Aws::Http::HttpClientFactory
+{
+public:
+    std::shared_ptr<Aws::Http::HttpClient> CreateHttpClient(
+        const Aws::Client::ClientConfiguration& cfg) const override
+    {
+        return std::make_shared<S3BodyLoggingHttpClient>(
+            std::make_shared<Aws::Http::CurlHttpClient>(cfg));
+    }
+
+    std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(
+        const Aws::String& uri,
+        Aws::Http::HttpMethod method,
+        const Aws::IOStreamFactory& streamFactory) const override
+    {
+        return CreateHttpRequest(Aws::Http::URI(uri), method, streamFactory);
+    }
+
+    std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(
+        const Aws::Http::URI& uri,
+        Aws::Http::HttpMethod method,
+        const Aws::IOStreamFactory& streamFactory) const override
+    {
+        auto request = Aws::MakeShared<Aws::Http::Standard::StandardHttpRequest>(
+            "S3BodyLoggingHttpClientFactory", uri, method);
+        request->SetResponseStreamFactory(streamFactory);
+        return request;
+    }
+
+    void CleanupStaticState() override
+    {
+        Aws::Http::CurlHttpClient::CleanupGlobalState();
+    }
+};
+
+} // anonymous namespace
+
+#endif // S3_SUPPORT && !S3_AWSCRT
 
 
 
@@ -104,6 +202,13 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
 	Aws::InitAPI(*s3SDKOptions);
 
+    // Install body-logging HTTP client factory only when both S3 debug logging
+    // and explicit body logging are enabled. Not applicable to S3_AWSCRT builds.
+    #ifndef S3_AWSCRT
+    if(progArgs->getS3LogLevel() > 0 && progArgs->getS3LogBody())
+        Aws::Http::SetHttpClientFactory(
+            std::make_shared<S3BodyLoggingHttpClientFactory>());
+    #endif // !S3_AWSCRT
 
     // Initialize credential store if multi-credentials are specified
     if(!progArgs->getS3CredentialsFile().empty())

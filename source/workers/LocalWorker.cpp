@@ -21,11 +21,14 @@
 
 #ifdef S3_SUPPORT
 	#include <aws/core/auth/AWSCredentialsProvider.h>
+	#include <aws/core/client/AWSError.h>
+	#include <aws/core/utils/DateTime.h>
 	#include <aws/core/utils/HashingUtils.h>
 	#include <aws/core/utils/memory/stl/AWSString.h>
 	#include <aws/core/utils/StringUtils.h>
 	#include <aws/core/utils/threading/Executor.h>
 	#include <aws/core/utils/UUID.h>
+	#include <aws/core/utils/xml/XmlSerializer.h>
 	#include INCLUDE_AWS_S3(model/AbortMultipartUploadRequest.h)
 	#include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
 	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
@@ -41,6 +44,8 @@
 	#include INCLUDE_AWS_S3(model/GetBucketTaggingRequest.h)
 	#include INCLUDE_AWS_S3(model/GetObjectAclRequest.h)
 	#include INCLUDE_AWS_S3(model/GetObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectLegalHoldRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectRetentionRequest.h)
     #include INCLUDE_AWS_S3(model/GetObjectTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/GetObjectLockConfigurationRequest.h)
     #include INCLUDE_AWS_S3(model/GetBucketVersioningRequest.h)
@@ -50,11 +55,15 @@
 	#include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
 	#include INCLUDE_AWS_S3(model/ListPartsRequest.h)
 	#include INCLUDE_AWS_S3(model/Object.h)
+    #include INCLUDE_AWS_S3(model/ObjectLockLegalHold.h)
+    #include INCLUDE_AWS_S3(model/ObjectLockRetention.h)
     #include INCLUDE_AWS_S3(model/ObjectLockRule.h)
 	#include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
 	#include INCLUDE_AWS_S3(model/PutBucketTaggingRequest.h)
 	#include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
 	#include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectLegalHoldRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectRetentionRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectLockConfigurationRequest.h)
     #include INCLUDE_AWS_S3(model/PutBucketVersioningRequest.h)
@@ -269,7 +278,11 @@ void LocalWorker::run()
 						}
 					} break;
 
+                    case BenchPhase_GET_OBJECT_RETENTION:
+                    case BenchPhase_GET_OBJECT_LEGAL_HOLD:
                     case BenchPhase_GET_S3_OBJECT_MD:
+                    case BenchPhase_PUT_OBJECT_RETENTION:
+                    case BenchPhase_PUT_OBJECT_LEGAL_HOLD:
                     case BenchPhase_PUT_S3_OBJECT_MD:
                     case BenchPhase_DEL_S3_OBJECT_MD:
                     {
@@ -3948,6 +3961,12 @@ void LocalWorker::s3ModeIterateObjects()
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
 
+            if (benchPhase == BenchPhase_PUT_OBJECT_RETENTION)
+                s3ModePutObjectRetention(bucketVec[bucketIndex], currentObjectPath);
+
+            if (benchPhase == BenchPhase_PUT_OBJECT_LEGAL_HOLD)
+                s3ModePutObjectLegalHold(bucketVec[bucketIndex], currentObjectPath);
+
             if (benchPhase == BenchPhase_PUT_S3_OBJECT_MD)
             {
                 if (progArgs->getDoS3ObjectTagging())
@@ -3962,6 +3981,12 @@ void LocalWorker::s3ModeIterateObjects()
 
 			if(benchPhase == BenchPhase_STATFILES)
                 s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_GET_OBJECT_RETENTION)
+                s3ModeGetObjectRetention(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_GET_OBJECT_LEGAL_HOLD)
+                s3ModeGetObjectLegalHold(bucketVec[bucketIndex], currentObjectPath);
 
             if(benchPhase == BenchPhase_GET_S3_OBJECT_MD)
             {
@@ -4230,6 +4255,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 }
 
 #ifdef S3_SUPPORT
+
 /**
  * Throw an informative WorkerException from an S3 error.
  *
@@ -4379,13 +4405,17 @@ void LocalWorker::s3ModeAddServerSideEncryption(REQUESTTYPE& request)
 }
 
 template <typename REQUESTTYPE>
-void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
+void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request,
+    S3ChecksumAlgorithm algorithm)
 {
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
-    IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
-        request.SetChecksumAlgorithm(s3ChecksumAlgorithm);
+    const S3ChecksumAlgorithm effectiveAlgorithm =
+        (s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET) ? s3ChecksumAlgorithm : algorithm;
+
+    IF_UNLIKELY(effectiveAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+        request.SetChecksumAlgorithm(effectiveAlgorithm);
 #endif // S3_SUPPORT
 }
 
@@ -6298,7 +6328,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
         s3ModeThrowOnCorsError(outcome, bucketName, objectName);
 
-		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
+        IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
             s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
         auto &result = outcome.GetResult();
@@ -7024,21 +7054,21 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
             OPLOG_POST_OP("S3DeleteObjects", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
                 delOutcome.GetResult().GetDeleted().size(), !delOutcome.IsSuccess() );
 
-			IF_UNLIKELY(!delOutcome.IsSuccess() &&
-				(!ignoreDelErrors ||
-					(delOutcome.GetError().GetResponseCode() ==
-						Aws::Http::HttpResponseCode::NOT_FOUND) ) )
-			{
-				auto s3Error = delOutcome.GetError();
+		IF_UNLIKELY(!delOutcome.IsSuccess() &&
+			(!ignoreDelErrors ||
+				(delOutcome.GetError().GetResponseCode() ==
+					Aws::Http::HttpResponseCode::NOT_FOUND) ) )
+		{
+			auto s3Error = delOutcome.GetError();
 
-				throw WorkerException(std::string("DeleteObjects failed. ") +
-					"Endpoint: " + s3EndpointStr + "; "
-					"Bucket: " + bucketVec[bucketIndex] + "; "
-					"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
-					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() + "; " +
-					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-			}
+			throw WorkerException(std::string("DeleteObjects failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketVec[bucketIndex] + "; "
+				"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
 
 			// calc entry operations latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -7252,6 +7282,50 @@ void LocalWorker::s3ModeCopyObject(const std::string& dstBucket, const std::stri
 }
 
 
+void LocalWorker::s3ModeGetObjectRetention(const std::string& bucketName,
+    const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    auto request = S3::GetObjectRetentionRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName);
+
+    OPLOG_PRE_OP("GetObjectRetention", bucketName + "/" + objectName, 0, 0);
+
+    const auto getRetentionOutcome = s3Client->GetObjectRetention(request);
+
+    OPLOG_POST_OP("GetObjectRetention", bucketName + "/" + objectName, 0, 0,
+        !getRetentionOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getRetentionOutcome, "Get object retention failed.", bucketName, objectName);
+
+    if (!progArgs->getDoS3ObjectRetentionVerify())
+        return;
+
+    const auto& retention = getRetentionOutcome.GetResult().GetRetention();
+
+    IF_UNLIKELY(retention.GetMode() != S3::ObjectLockRetentionMode::GOVERNANCE)
+    {
+        std::stringstream errStr;
+        errStr << "Object retention mode is not GOVERNANCE." << std::endl
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl;
+        throw WorkerException(errStr.str());
+    }
+
+    IF_UNLIKELY(!retention.RetainUntilDateHasBeenSet())
+    {
+        std::stringstream errStr;
+        errStr << "Object retention date is not set." << std::endl
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl;
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
 void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
 {
 #ifndef S3_SUPPORT
@@ -7298,6 +7372,105 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
                << "Bucket: " << bucketName << "; "
                << "Key: " << objectName << std::endl
                << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectRetention(const std::string& bucketName,
+    const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const Aws::Utils::DateTime retainUntil(
+        std::chrono::system_clock::now() +
+        std::chrono::minutes(progArgs->getS3ObjectRetentionMinutes()));
+
+    auto request = S3::PutObjectRetentionRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName)
+                       .WithRetention(
+                           S3::ObjectLockRetention()
+                               .WithMode(S3::ObjectLockRetentionMode::GOVERNANCE)
+                               .WithRetainUntilDate(retainUntil));
+
+    OPLOG_PRE_OP("PutObjectRetention", bucketName + "/" + objectName, 0, 0);
+
+    const auto putRetentionOutcome = s3Client->PutObjectRetention(request);
+
+    OPLOG_POST_OP("PutObjectRetention", bucketName + "/" + objectName, 0, 0,
+        !putRetentionOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putRetentionOutcome, "Put object retention failed.", bucketName, objectName);
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectLegalHold(const std::string& bucketName,
+    const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const S3::ObjectLockLegalHoldStatus holdStatus =
+        S3::ObjectLockLegalHoldStatusMapper::GetObjectLockLegalHoldStatusForName(
+            progArgs->getS3ObjectLegalHoldStatus());
+
+    auto request = S3::PutObjectLegalHoldRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName)
+                       .WithLegalHold(
+                           S3::ObjectLockLegalHold().WithStatus(holdStatus));
+
+    s3ModeAddChecksumAlgorithm(request);
+
+    OPLOG_PRE_OP("PutObjectLegalHold", bucketName + "/" + objectName, 0, 0);
+
+    const auto putLegalHoldOutcome = s3Client->PutObjectLegalHold(request);
+
+    OPLOG_POST_OP("PutObjectLegalHold", bucketName + "/" + objectName, 0, 0,
+        !putLegalHoldOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putLegalHoldOutcome, "Put object legal hold failed.", bucketName,
+        objectName);
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeGetObjectLegalHold(const std::string& bucketName,
+    const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    auto request = S3::GetObjectLegalHoldRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName);
+
+    OPLOG_PRE_OP("GetObjectLegalHold", bucketName + "/" + objectName, 0, 0);
+
+    const auto getLegalHoldOutcome = s3Client->GetObjectLegalHold(request);
+
+    OPLOG_POST_OP("GetObjectLegalHold", bucketName + "/" + objectName, 0, 0,
+        !getLegalHoldOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getLegalHoldOutcome, "Get object legal hold failed.", bucketName,
+        objectName);
+
+    if (!progArgs->getDoS3ObjectLegalHoldVerify())
+        return;
+
+    const auto& legalHold = getLegalHoldOutcome.GetResult().GetLegalHold();
+    const S3::ObjectLockLegalHoldStatus expectedStatus = progArgs->getS3ObjectLegalHoldOn()
+        ? S3::ObjectLockLegalHoldStatus::ON
+        : S3::ObjectLockLegalHoldStatus::OFF;
+
+    IF_UNLIKELY(legalHold.GetStatus() != expectedStatus)
+    {
+        std::stringstream errStr;
+        errStr << "Object legal hold status does not match expected value." << std::endl
+               << "Expected: " << progArgs->getS3ObjectLegalHoldStatus() << std::endl
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl;
         throw WorkerException(errStr.str());
     }
 #endif // S3_SUPPORT
@@ -7422,7 +7595,7 @@ void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName
         objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
         objectLockCfg.SetRule(
             S3::ObjectLockRule().WithDefaultRetention(
-                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
+                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::GOVERNANCE).WithDays(1)
             )
         );
     }
