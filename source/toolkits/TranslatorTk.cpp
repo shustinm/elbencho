@@ -82,7 +82,11 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
+        case BenchPhase_GET_OBJECT_RETENTION: return PHASENAME_GETOBJRETENTION;
+        case BenchPhase_GET_OBJECT_LEGAL_HOLD: return PHASENAME_GETOBJLEGALHOLD;
         case BenchPhase_GET_S3_OBJECT_MD: return PHASENAME_GETOBJECTMETADATA;
+        case BenchPhase_PUT_OBJECT_RETENTION: return PHASENAME_PUTOBJRETENTION;
+        case BenchPhase_PUT_OBJECT_LEGAL_HOLD: return PHASENAME_PUTOBJLEGALHOLD;
         case BenchPhase_PUT_S3_OBJECT_MD: return PHASENAME_PUTOBJECTMETADATA;
         case BenchPhase_ABORT_MPU: return PHASENAME_ABORT_MPU;
         case BenchPhase_DEL_S3_OBJECT_MD: return PHASENAME_DELOBJECTMETADATA;
@@ -136,7 +140,11 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_LISTOBJECTS:
         case BenchPhase_LISTOBJPARALLEL:
         case BenchPhase_MULTIDELOBJ:
+        case BenchPhase_GET_OBJECT_RETENTION:
+        case BenchPhase_GET_OBJECT_LEGAL_HOLD:
         case BenchPhase_GET_S3_OBJECT_MD:
+        case BenchPhase_PUT_OBJECT_RETENTION:
+        case BenchPhase_PUT_OBJECT_LEGAL_HOLD:
         case BenchPhase_PUT_S3_OBJECT_MD:
         case BenchPhase_ABORT_MPU:
         case BenchPhase_DEL_S3_OBJECT_MD:

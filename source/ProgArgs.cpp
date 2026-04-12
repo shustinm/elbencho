@@ -194,7 +194,7 @@ void ProgArgs::defineAllowedArgs()
     // ordered by user option strings to print user help in alphabetical order
     argsGenericDescription.add_options()
 /*al*/	(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
-			"Show elapsed time to completion of each I/O worker thread.")
+		"Show elapsed time to completion of each I/O worker thread.")
 #ifdef ALTHTTPSVC_SUPPORT
 /*al*/	(ARG_ALTHTTPSERVER_LONG, bpo::bool_switch(&this->useAlternativeHTTPService),
 			"Use alternative implementation of HTTP service (for testing).")
@@ -631,6 +631,11 @@ void ProgArgs::defineAllowedArgs()
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. See \"--" ARG_S3LOGFILEPREFIX_LONG "\" for filename. "
 			"(Default: 0=disabled; Max: 6)")
+/*s3l*/	(ARG_S3LOGBODY_LONG, bpo::bool_switch(&this->s3LogBody),
+			"Enable logging of S3 request body XML via the S3BodyLoggingHttpClient. "
+			"Requires \"--" ARG_S3LOGLEVEL_LONG "\" to be set. "
+			"(Default: disabled) "
+			"[Not effective for builds with feature " FEATURE_NAME_S3_AWSCRT ".]")
 /*s3l*/	(ARG_S3LOGFILEPREFIX_LONG, bpo::value(&this->s3LogfilePrefix),
 			"Path and filename prefix of AWS S3 SDK log file. \"DATE.log\" will get appended to "
 			"the given filename. "
@@ -682,6 +687,23 @@ void ProgArgs::defineAllowedArgs()
             "Activate object lock configuration creation.")
 /*s3o*/	(ARG_S3OBJLOCKCFGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
             "Verify the correctness of object lock configurations.")
+/*s3o*/	(ARG_S3OBJRETENTION_LONG, bpo::bool_switch(&this->doS3ObjectRetention),
+            "Activate S3 object retention operations. Sets GOVERNANCE mode retention on each "
+            "object. Use \"--" ARG_S3OBJRETENTIONMINUTES_LONG "\" to set the duration (default: 10min).")
+/*s3o*/	(ARG_S3OBJRETENTIONMINUTES_LONG, bpo::value(&this->s3ObjectRetentionMinutes),
+            "Number of minutes for S3 object retention period when \"--" ARG_S3OBJRETENTION_LONG
+            "\" is active. (Default: 10)")
+/*s3o*/	(ARG_S3OBJRETENTIONVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectRetentionVerify),
+            "Verify the correctness of S3 object retention values.")
+/*s3o*/	(ARG_S3OBJLEGALHOLD_LONG, bpo::bool_switch(&this->doS3ObjectLegalHold),
+            "Activate S3 object legal hold operations. Sets or removes the legal hold status on "
+            "each object. Use \"--" ARG_S3OBJLEGALHOLDVERIFY_LONG "\" to verify. By default the "
+            "legal hold is set ON; pass \"--" ARG_S3OBJLEGALHOLDSET_LONG " OFF\" to remove it.")
+/*s3o*/	(ARG_S3OBJLEGALHOLDSET_LONG, bpo::value(&this->s3ObjectLegalHoldStatus),
+            "When \"--" ARG_S3OBJLEGALHOLD_LONG "\" is active, set the legal hold status to ON "
+            "or OFF. (Default: ON)")
+/*s3o*/	(ARG_S3OBJLEGALHOLDVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLegalHoldVerify),
+            "Verify the correctness of S3 object legal hold status.")
 /*s3o*/	(ARG_S3OBJTAG_LONG, bpo::bool_switch(&this->doS3ObjectTag),
             "Activate S3 object tagging.")
 /*s3o*/	(ARG_S3OBJTAGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectTagVerify),
@@ -908,6 +930,7 @@ void ProgArgs::defineDefaults()
 	this->treeRoundUpSizeOrigStr = "0";
 	this->useS3FastRead = false;
 	this->ignoreS3Errors = false;
+	this->s3LogBody = false;
 	this->s3LogLevel = 0;
 	this->s3LogfilePrefix = AWS_SDK_LOGPREFIX_DEFAULT;
 	this->noDirectIOCheck = false;
@@ -976,6 +999,12 @@ void ProgArgs::defineDefaults()
     this->doS3AbortMPU = false;
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
+    this->doS3ObjectRetention = false;
+    this->s3ObjectRetentionMinutes = 10;
+    this->doS3ObjectRetentionVerify = false;
+    this->doS3ObjectLegalHold = false;
+    this->s3ObjectLegalHoldStatus = "ON";
+    this->doS3ObjectLegalHoldVerify = false;
 	this->useOpsLogLocking = false;
     this->s3MaxConnections = 0;
 	this->s3MpuSizeVariance = 0;
@@ -1059,6 +1088,14 @@ void ProgArgs::initImplicitValues()
             s3SessionToken = getenv(S3_ENV_SESSION_TOKEN);
 
         s3EndpointsServiceOverrideStr = s3EndpointsStr;
+    }
+
+    // validate legal hold status value
+    if(doS3ObjectLegalHold &&
+        s3ObjectLegalHoldStatus != "ON" && s3ObjectLegalHoldStatus != "OFF")
+    {
+        throw ProgException("Invalid value for \"--" ARG_S3OBJLEGALHOLDSET_LONG "\": \"" +
+            s3ObjectLegalHoldStatus + "\". Valid values are ON and OFF.");
     }
 
     // csv file: remove commas from user-defined label
@@ -3519,6 +3556,12 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     doS3ObjectTagVerify = tree.get<bool>(ARG_S3OBJTAGVERIFY_LONG);
     doS3ObjectLockCfg = tree.get<bool>(ARG_S3OBJLOCKCFG_LONG);
     doS3ObjectLockCfgVerify = tree.get<bool>(ARG_S3OBJLOCKCFGVERIFY_LONG);
+    doS3ObjectRetention = tree.get<bool>(ARG_S3OBJRETENTION_LONG);
+    s3ObjectRetentionMinutes = tree.get<unsigned>(ARG_S3OBJRETENTIONMINUTES_LONG);
+    doS3ObjectRetentionVerify = tree.get<bool>(ARG_S3OBJRETENTIONVERIFY_LONG);
+    doS3ObjectLegalHold = tree.get<bool>(ARG_S3OBJLEGALHOLD_LONG);
+    s3ObjectLegalHoldStatus = tree.get<std::string>(ARG_S3OBJLEGALHOLDSET_LONG);
+    doS3ObjectLegalHoldVerify = tree.get<bool>(ARG_S3OBJLEGALHOLDVERIFY_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
@@ -3756,6 +3799,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
     outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3OBJRETENTION_LONG, doS3ObjectRetention);
+    outTree.put(ARG_S3OBJRETENTIONMINUTES_LONG, s3ObjectRetentionMinutes);
+    outTree.put(ARG_S3OBJRETENTIONVERIFY_LONG, doS3ObjectRetentionVerify);
+    outTree.put(ARG_S3OBJLEGALHOLD_LONG, doS3ObjectLegalHold);
+    outTree.put(ARG_S3OBJLEGALHOLDSET_LONG, s3ObjectLegalHoldStatus);
+    outTree.put(ARG_S3OBJLEGALHOLDVERIFY_LONG, doS3ObjectLegalHoldVerify);
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
@@ -3777,6 +3826,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
     outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3OBJRETENTION_LONG, doS3ObjectRetention);
+    outTree.put(ARG_S3OBJRETENTIONMINUTES_LONG, s3ObjectRetentionMinutes);
+    outTree.put(ARG_S3OBJRETENTIONVERIFY_LONG, doS3ObjectRetentionVerify);
     outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
     outTree.put(ARG_S3TROUGHPUTTARGET_LONG, s3ThroughputTargetGbps);
     outTree.put(ARG_S3VIRTADDRESSING_LONG, useS3VirtualAddressing);

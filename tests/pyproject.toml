@@ -1,0 +1,16 @@
+[project]
+name = "elbencho-s3-tests"
+version = "0.1.0"
+description = "S3 integration tests for elbencho"
+requires-python = ">=3.14"
+dependencies = [
+    "pytest>=7.0",
+    "boto3>=1.28",
+    "boto3-stubs[boto3,s3]>=1.42.78",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["s3"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

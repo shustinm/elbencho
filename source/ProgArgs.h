@@ -159,8 +159,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
-#define ARG_S3COPYOBJ_LONG          "s3copyobj"
 #define ARG_S3COPYBUCKET_LONG       "s3copybucket"
+#define ARG_S3COPYOBJ_LONG          "s3copyobj"
 #define ARG_S3COPYSRCPFX_LONG       "s3copysrcpfx"
 #define ARG_S3CORSORIGIN_LONG       "s3corsorigin"
 #define ARG_S3CLIENTSINGLETON_LONG  "s3single"
@@ -175,6 +175,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
 #define ARG_S3LISTPARTS_LONG        "s3listparts"
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
+#define ARG_S3LOGBODY_LONG          "s3logbody"
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
 #define ARG_S3MAXCONNS_LONG         "s3maxconns"
@@ -188,6 +189,12 @@ namespace bpt = boost::property_tree;
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_S3OBJLOCKCFG_LONG       "s3olockcfg"
 #define ARG_S3OBJLOCKCFGVERIFY_LONG "s3olockcfgverify"
+#define ARG_S3OBJRETENTION_LONG     "s3oretention"
+#define ARG_S3OBJRETENTIONMINUTES_LONG "s3oretentionminutes"
+#define ARG_S3OBJRETENTIONVERIFY_LONG "s3oretentionverify"
+#define ARG_S3OBJLEGALHOLD_LONG       "s3olegalhold"
+#define ARG_S3OBJLEGALHOLDSET_LONG    "s3olegalholdstatus"
+#define ARG_S3OBJLEGALHOLDVERIFY_LONG "s3olegatholdrverify"
 #define ARG_S3OBJTAG_LONG           "s3otag"
 #define ARG_S3OBJTAGVERIFY_LONG     "s3otagverify"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
@@ -404,6 +411,12 @@ class ProgArgs
         bool doS3ObjectTagVerify; // do bucket tagging verification.
         bool doS3ObjectLockCfg; // do S3 object lock configuration
         bool doS3ObjectLockCfgVerify; // do S3 object lock configuration verification
+        bool doS3ObjectRetention; // do S3 object-level retention operations
+        unsigned s3ObjectRetentionMinutes; // number of minutes for object retention period
+        bool doS3ObjectRetentionVerify; // verify S3 object-level retention values
+        bool doS3ObjectLegalHold; // do S3 object-level legal hold operations
+        std::string s3ObjectLegalHoldStatus; // "ON" or "OFF" for legal hold status to set/verify
+        bool doS3ObjectLegalHoldVerify; // verify S3 object-level legal hold status
         bool doS3ListMPU; // enable list multipart uploads requests
         bool doS3ListParts; // enable list parts requests
         bool doS3AbortMPU; // enable abort multipart uploads phase
@@ -512,6 +525,7 @@ class ProgArgs
 		std::string s3ErrorHeadersStr; // user-given comma-separated list of HTTP headers for errors
 		StringVec s3ErrorHeadersVec; // s3ErrorHeadersStr broken down into individual header names
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
+		bool s3LogBody; // enable S3BodyLoggingHttpClient to log request body XML
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
         unsigned s3MaxConnections; // max conns per s3 client instance (not eff. for S3CrtClient)
@@ -654,8 +668,14 @@ class ProgArgs
             { return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning; }
         bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
         bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
+        bool getRunS3GetObjectRetention() const { return doS3ObjectRetention; }
+        bool getRunS3GetObjectLegalHold() const { return doS3ObjectLegalHold; }
         bool getRunS3PutObjectMetadata() const
             { return getS3ObjectMetadataRequested() && runCreateFilesPhase; }
+        bool getRunS3PutObjectRetention() const
+            { return doS3ObjectRetention && runCreateFilesPhase; }
+        bool getRunS3PutObjectLegalHold() const
+            { return doS3ObjectLegalHold && runCreateFilesPhase; }
         bool getRunS3DelObjectMetadata() const
             { return getS3ObjectMetadataRequested() && runDeleteFilesPhase; }
         bool getRunS3GetBucketMetadata() const { return getS3BucketMetadataRequested(); }
@@ -696,6 +716,13 @@ class ProgArgs
         bool getDoS3ObjectTaggingVerify() const { return doS3ObjectTagVerify; }
         bool getDoS3ObjectLockConfiguration() const { return doS3ObjectLockCfg; }
         bool getDoS3ObjectLockConfigurationVerify() const { return doS3ObjectLockCfgVerify; }
+        bool getDoS3ObjectRetention() const { return doS3ObjectRetention; }
+        unsigned getS3ObjectRetentionMinutes() const { return s3ObjectRetentionMinutes; }
+        bool getDoS3ObjectRetentionVerify() const { return doS3ObjectRetentionVerify; }
+        bool getDoS3ObjectLegalHold() const { return doS3ObjectLegalHold; }
+        bool getS3ObjectLegalHoldOn() const { return s3ObjectLegalHoldStatus == "ON"; }
+        const std::string& getS3ObjectLegalHoldStatus() const { return s3ObjectLegalHoldStatus; }
+        bool getDoS3ObjectLegalHoldVerify() const { return doS3ObjectLegalHoldVerify; }
         bool getDoS3AclPutInline() const { return doS3AclPutInline; }
 		bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoS3ListMPU() const { return doS3ListMPU; }
@@ -797,6 +824,7 @@ class ProgArgs
         const StringVec& getS3ErrorHeadersVec() const { return s3ErrorHeadersVec; }
         bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
+        bool getS3LogBody() const { return s3LogBody; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
         size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }

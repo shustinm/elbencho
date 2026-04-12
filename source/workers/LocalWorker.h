@@ -262,7 +262,8 @@ class LocalWorker : public Worker
         template <typename REQUESTTYPE>
         void s3ModeAddCorsHeader(REQUESTTYPE& request);
         template <typename REQUESTTYPE>
-			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
+			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request,
+                S3ChecksumAlgorithm algorithm = S3ChecksumAlgorithm::NOT_SET);
 		void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);
@@ -297,8 +298,12 @@ class LocalWorker : public Worker
 		void s3ModeListAndMultiDeleteObjects();
 		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
 		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectRetention(const std::string& bucketName, const std::string& objectName);
+        void s3ModeGetObjectLegalHold(const std::string& bucketName, const std::string& objectName);
         void s3ModeCopyObject(const std::string& srcBucket, const std::string& objectName);
         void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectRetention(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectLegalHold(const std::string& bucketName, const std::string& objectName);
         void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModeGetObjectLockConfiguration(const std::string& bucketName);

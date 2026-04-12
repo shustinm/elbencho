@@ -42,3 +42,31 @@ todo.txt
 
 # Misc (Mac)
 .DS_Store
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+pytestdebug.log
+
+# S3 / elbencho integration test payloads (downloaded artifacts)
+tests/vastdata-infra-s3-elbencho-test-*
+
+# IDE settings
+.vscode/
+.idea/

@@ -27,6 +27,7 @@ _elbencho_opts()
    longopts="
         --allelapsed
         --althttpsvc
+        --assertlockobject
         --backward
         --block
         --blockvaralgo
@@ -133,8 +134,8 @@ _elbencho_opts()
         --s3bversion
         --s3bversionverify
         --s3chksumalgo
-        --s3copyobj
         --s3copybucket
+        --s3copyobj
         --s3copysrcpfx
         --s3corsorigin
         --s3credfile
@@ -161,6 +162,12 @@ _elbencho_opts()
         --s3objprefix
         --s3olockcfg
         --s3olockcfgverify
+        --s3oretention
+        --s3oretentionminutes
+        --s3oretentionverify
+        --s3olegalhold
+        --s3olegalholdstatus
+        --s3olegatholdrverify
         --s3otag
         --s3otagverify
         --s3randobj
@@ -315,6 +322,10 @@ _elbencho()
         --s3mpusplit)
         ;&
         --s3multidel)
+        ;&
+        --s3oretentionminutes)
+        ;&
+        --s3olegalholdstatus)
         ;&
         --s3objprefix)
         ;&
