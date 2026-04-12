@@ -5,6 +5,7 @@
 #include <iterator>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <unordered_set>
 
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
@@ -4269,7 +4270,8 @@ void LocalWorker::s3ModeThrowFromError(
         const S3ErrorType& s3Error,
         const std::string& failMessage,
         const std::string& bucketName,
-        const std::string& objectName)
+        const std::string& objectName,
+        const StringPairVec& extraFields)
 {
 
     std::stringstream errStr;
@@ -4281,6 +4283,9 @@ void LocalWorker::s3ModeThrowFromError(
         "Message: " << s3Error.GetMessage() << std::endl <<
         "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
         "Request ID: " << s3Error.GetRequestId() << std::endl;
+
+    for(const auto& field : extraFields)
+        errStr << field.first << ": " << field.second << std::endl;
 
     // Print requested HTTP headers from the error response if user specified any
     const StringVec& requestedHeaders = progArgs->getS3ErrorHeadersVec();
@@ -4315,14 +4320,15 @@ void LocalWorker::s3ModeThrowOnError(
         const Aws::Utils::Outcome<R, S3ErrorType>& outcome,
         const std::string& failMessage,
         const std::string& bucketName,
-        const std::string& objectName)
+        const std::string& objectName,
+        const StringPairVec& extraFields)
 {
 
     IF_LIKELY(outcome.IsSuccess() )
         return;
 
     const S3ErrorType s3Error = outcome.GetError();
-    s3ModeThrowFromError(s3Error, failMessage, bucketName, objectName);
+    s3ModeThrowFromError(s3Error, failMessage, bucketName, objectName, extraFields);
 
 }
 
@@ -5206,20 +5212,18 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
         auto outcome = listOutcome.GetResult();
         const auto& uploads = outcome.GetUploads();
-        // We expect exactly 1 multipart upload because the prefix contains the worker rank,
-        // making it specific enough to match only the current upload
-        IF_UNLIKELY(uploads.size() != 1) {
-            std::string uploadsStr;
-            for(const auto& upload : uploads)
-                uploadsStr += "Key: " + upload.GetKey() +
-                    ", UploadId: " + upload.GetUploadId() + "; ";
 
-            throw WorkerException(
-                std::string("Expected exactly 1 multipart upload, but found ") +
-                std::to_string(uploads.size()) + "; " +
-                "Bucket: " + bucketName + "; " +
-                "Prefix: " + outcome.GetPrefix() + "; " +
-                "Uploads: [" + uploadsStr + "]");
+        for(const auto& upload : uploads) {
+            IF_UNLIKELY(upload.GetKey() != objectName) {
+                std::stringstream errStr;
+                errStr << "Multipart upload key mismatch." << std::endl <<
+                    "Expected key: " << objectName << std::endl <<
+                    "Found key: " << upload.GetKey() << std::endl <<
+                    "UploadId: " << upload.GetUploadId() << std::endl <<
+                    "Bucket: " << bucketName << std::endl <<
+                    "Prefix: " << outcome.GetPrefix() << std::endl;
+                throw WorkerException(errStr.str());
+            }
         }
     }
 
@@ -6181,6 +6185,24 @@ void LocalWorker::s3ModeAbortMultipartUploads()
 
 		const auto& uploads = listOutcome.GetResult().GetUploads();
 
+		std::unordered_set<std::string> seenUploadIds;
+		for(const auto& upload : uploads)
+		{
+			auto [it, inserted] = seenUploadIds.insert(upload.GetUploadId());
+			IF_UNLIKELY(!inserted)
+			{
+				std::stringstream errStr;
+				errStr << "Found more than one upload with the same UploadId." << std::endl <<
+					"Endpoint: " << s3EndpointStr << std::endl <<
+					"Bucket: " << bucketName << std::endl <<
+					"Prefix: " << objectPrefix << std::endl <<
+					"Duplicate UploadId: " << upload.GetUploadId() << std::endl <<
+					"Key: " << upload.GetKey() << std::endl <<
+					"Total uploads: " << uploads.size() << std::endl;
+				throw WorkerException(errStr.str());
+			}
+		}
+
 		// Abort each incomplete multipart upload
 		for(const auto& upload : uploads)
 		{
@@ -6204,8 +6226,8 @@ void LocalWorker::s3ModeAbortMultipartUploads()
 				!abortOutcome.IsSuccess());
 
 			if (!ignoreS3Errors)
-				s3ModeThrowOnError(abortOutcome, "Failed to abort multipart upload.",
-					bucketName, objectKey);
+				s3ModeThrowOnError(abortOutcome, "Failed to abort multipart upload. ",
+					bucketName, objectKey, {{"Upload ID", uploadId}});
 
 			// calc io operation latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();

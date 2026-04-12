@@ -248,10 +248,12 @@ class LocalWorker : public Worker
 
 #ifdef S3_SUPPORT
         void s3ModeThrowFromError(const S3ErrorType& s3Error, const std::string& failMessage,
-                                  const std::string& bucketName, const std::string& objectName="");
+                                  const std::string& bucketName, const std::string& objectName="",
+                                  const StringPairVec& extraFields={});
         template <typename R>
         void s3ModeThrowOnError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome, const std::string& failMessage,
-                                const std::string& bucketName, const std::string& objectName="");
+                                const std::string& bucketName, const std::string& objectName="",
+                                const StringPairVec& extraFields={});
         template <typename R>
         void s3ModeThrowOnCorsError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome,
                                    const std::string& bucketName, const std::string& objectName="");

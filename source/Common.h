@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 // macro to easily switch between AWS Common Runtime (CRT) includes and external libs runtime
@@ -25,6 +26,7 @@
 typedef std::list<std::string> StringList;
 typedef std::set<std::string> StringSet;
 typedef std::vector<std::string> StringVec;
+typedef std::vector<std::pair<std::string, std::string>> StringPairVec;
 typedef std::vector<int> IntVec;
 typedef std::vector<char*> BufferVec;
 typedef std::vector<size_t> SizeTVec;
