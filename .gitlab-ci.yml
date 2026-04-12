@@ -86,7 +86,7 @@ test:s3:aws:
     - >-
       cd tests && uv run pytest s3/ -v -s --tb=short --junitxml=../report-aws.xml
       --s3endpoints=""
-      --s3region=ue-west-1
+      --s3region=eu-west-1
       --s3-bucket-prefix="vastdata-infra-s3ci-${CI_PIPELINE_ID}-"
   artifacts:
     when: always
