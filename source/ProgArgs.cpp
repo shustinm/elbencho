@@ -576,6 +576,10 @@ void ProgArgs::defineAllowedArgs()
 /*s3c*/	(ARG_S3CHECKSUM_ALGO_LONG, bpo::value(&this->s3ChecksumAlgoStr),
             "S3 checksum algorithm to use (CRC32, CRC32C, SHA1, SHA256). This sets the "
             "x-amz-sdk-checksum-algorithm header for S3 operations. (EXPERIMENTAL)")
+/*s3c*/	(ARG_S3CONTENTMD5_LONG, bpo::bool_switch(&this->doS3ContentMd5),
+            "Add Content-MD5 header to S3 PutObject and UploadPart requests. The header value is "
+            "the base64-encoded MD5 digest of the request body, enabling server-side integrity "
+            "verification.")
 /*s3c*/	(ARG_S3COPYBUCKET_LONG, bpo::value(&this->s3CopyBucket),
             "Source bucket for S3 CopyObject phase. The benchmark path bucket(s) are used as "
             "destinations. Requires \"--" ARG_S3COPYOBJ_LONG "\".")
@@ -997,6 +1001,7 @@ void ProgArgs::defineDefaults()
     this->doS3ListMPU = false;
     this->doS3ListParts = false;
     this->doS3AbortMPU = false;
+    this->doS3ContentMd5 = false;
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
     this->doS3ObjectRetention = false;
@@ -3549,6 +3554,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     doS3BucketTag = tree.get<bool>(ARG_S3BUCKETTAG_LONG);
     doS3BucketTagVerify = tree.get<bool>(ARG_S3BUCKETTAGVERIFY_LONG);
     doS3BucketVersioning = tree.get<bool>(ARG_S3BUCKETVER_LONG);
+    doS3ContentMd5 = tree.get<bool>(ARG_S3CONTENTMD5_LONG);
     doS3ListMPU = tree.get<bool>(ARG_S3LISTMPU_LONG);
     doS3ListParts = tree.get<bool>(ARG_S3LISTPARTS_LONG);
     doS3BucketVersioningVerify = tree.get<bool>(ARG_S3BUCKETVERVERIFY_LONG);
@@ -3776,6 +3782,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
     outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
+    outTree.put(ARG_S3CONTENTMD5_LONG, doS3ContentMd5);
     outTree.put(ARG_S3CLIENTSINGLETON_LONG, useS3ClientSingleton);
     outTree.put(ARG_S3COPYBUCKET_LONG, s3CopyBucket);
     outTree.put(ARG_S3COPYOBJ_LONG, runS3CopyObj);

@@ -547,6 +547,8 @@ void LocalWorker::initS3Client()
 
     s3SSEKMSKey = progArgs->getS3SSEKMSKey();
 
+    s3ContentMd5 = progArgs->getDoS3ContentMd5();
+
     if(progArgs->getS3ChecksumAlgo().empty() )
         s3ChecksumAlgorithm = S3ChecksumAlgorithm::NOT_SET;
     else
@@ -4426,6 +4428,29 @@ void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request,
 #endif // S3_SUPPORT
 }
 
+/**
+ * Add Content-MD5 header to an S3 upload request if enabled via --s3contentmd5.
+ *
+ * @request the S3 request to modify.
+ * @buf the request body buffer for which to calculate the MD5 digest.
+ * @bufLen length of buf in bytes.
+ */
+template <typename REQUESTTYPE>
+void LocalWorker::s3ModeAddContentMd5(REQUESTTYPE& request, unsigned char* buf, uint64_t bufLen)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    IF_UNLIKELY(s3ContentMd5)
+    {
+        S3MemoryStream memStream(buf, bufLen);
+        Aws::String md5Str = Aws::Utils::HashingUtils::Base64Encode(
+            Aws::Utils::HashingUtils::CalculateMD5(memStream) );
+        request.SetContentMD5(md5Str);
+    }
+#endif // S3_SUPPORT
+}
+
 template <typename REQUESTTYPE>
 void LocalWorker::s3ModeAddCorsHeader(REQUESTTYPE& request)
 {
@@ -4929,6 +4954,8 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
         S3Tk::addUploadPartRequestChecksum(request, NULL,
             s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
+    s3ModeAddContentMd5(request, (unsigned char*) ioBufVec[0], blockSize);
+
     request.SetDataSentEventHandler(
         [&](const Aws::Http::HttpRequest* request, long long numBytes)
         { atomicLiveOps.numBytesDone += numBytes; } );
@@ -5087,6 +5114,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
             S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
                 s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
+
+        s3ModeAddContentMd5(uploadPartRequest, (unsigned char*) ioBufVec[0], blockSize);
 
 		uploadPartRequest.SetBody(s3MemStream);
 
@@ -5409,6 +5438,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                         &asyncPartContext.completedPart, s3ChecksumAlgorithm,
                         (unsigned char*) ioBufVec[currentIODepth], blockSize);
 
+                s3ModeAddContentMd5(uploadPartRequest,
+                    (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
                 uploadPartRequest.SetBody(s3MemStream);
 
                 uploadPartRequest.SetDataSentEventHandler(
@@ -5658,6 +5690,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
             S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
                 s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
+        s3ModeAddContentMd5(uploadPartRequest, (unsigned char*) ioBufVec[0], blockSize);
+
 		uploadPartRequest.SetBody(s3MemStream);
 
 		uploadPartRequest.SetDataSentEventHandler(
@@ -5869,6 +5903,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                     S3Tk::addUploadPartRequestChecksum(uploadPartRequest,
                         &asyncPartContext.completedPart, s3ChecksumAlgorithm,
                         (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
+                s3ModeAddContentMd5(uploadPartRequest,
+                    (unsigned char*) ioBufVec[currentIODepth], blockSize);
 
                 uploadPartRequest.SetBody(s3MemStream);
 

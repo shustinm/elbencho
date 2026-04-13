@@ -165,6 +165,7 @@ class LocalWorker : public Worker
         std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
         std::string s3SSEKMSKey; // SSE-KMS encryption key
 		S3ChecksumAlgorithm s3ChecksumAlgorithm; // for x-amz-sdk-checksum-algorithm header
+        bool s3ContentMd5{false}; // add Content-MD5 header to upload requests
 
         // Stores the CorsResult for the latest response, assuming it ran with s3ModeAddCorsHeader
         CorsResult lastCorsResult{CorsResult::NOT_SET};
@@ -266,6 +267,9 @@ class LocalWorker : public Worker
         template <typename REQUESTTYPE>
 			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request,
                 S3ChecksumAlgorithm algorithm = S3ChecksumAlgorithm::NOT_SET);
+        template <typename REQUESTTYPE>
+            inline void s3ModeAddContentMd5(REQUESTTYPE& request,
+                unsigned char* buf, uint64_t bufLen);
 		void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);

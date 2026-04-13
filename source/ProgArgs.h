@@ -205,6 +205,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
 #define ARG_S3CHECKSUM_ALGO_2_LONG  "s3checksumalgo"  // compat alias (too long name)
 #define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
+#define ARG_S3CONTENTMD5_LONG       "s3contentmd5"
 #define ARG_S3ERRORHEADERS_LONG     "s3errheaders"
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
@@ -420,6 +421,7 @@ class ProgArgs
         bool doS3ListMPU; // enable list multipart uploads requests
         bool doS3ListParts; // enable list parts requests
         bool doS3AbortMPU; // enable abort multipart uploads phase
+        bool doS3ContentMd5; // add Content-MD5 header to S3 upload requests
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -729,6 +731,7 @@ class ProgArgs
         bool getDoS3ListParts() const { return doS3ListParts; }
         bool getDoS3AbortMPU() const { return doS3AbortMPU; }
         bool getRunAbortMPUPhase() const { return doS3AbortMPU; }
+        bool getDoS3ContentMd5() const { return doS3ContentMd5; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }
         bool getDoListObjVerify() const { return doS3ListObjVerify; }

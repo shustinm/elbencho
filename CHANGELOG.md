@@ -3,6 +3,8 @@
 ## v3.0.38 (work in progress)
 
 ### New Features & Enhancements
+* Added `--s3contentmd5` flag to include the Content-MD5 header on S3 PutObject and UploadPart requests, enabling server-side body integrity verification.
+
 * Added support for S3 object legal hold benchmarking. Sets or removes the legal hold status on each object during the write phase and retrieves it during the read/stat phase. Use `--s3olegalholdstatus ON` (default) or `--s3olegalholdstatus OFF` to control the status. (Enable with `--s3olegalhold`; verify with `--s3olegatholdrverify`.)
 
 * Added support for S3 object-level retention benchmarking. Sets GOVERNANCE mode retention on each object during the write phase and retrieves it during the read/stat phase. The retention period defaults to 10 minutes and can be configured via `--s3oretentionminutes`. (Enable with `--s3oretention`; verify with `--s3oretentionverify`.)

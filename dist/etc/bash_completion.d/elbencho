@@ -134,6 +134,7 @@ _elbencho_opts()
         --s3bversion
         --s3bversionverify
         --s3chksumalgo
+        --s3contentmd5
         --s3copybucket
         --s3copyobj
         --s3copysrcpfx
